@@ -15,6 +15,53 @@ model User {
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   sessions     Session[]
+  hands        Hand[]
+}
+
+model Hand {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Game info
+  blinds      String    // e.g., "1/2", "2/5"
+  tableSize   Int       @default(9)
+  playerCount Int       @default(9)
+
+  // Hero info
+  heroCards   String[]  // ["Ah", "Kd"]
+  heroPosition String   // "BTN", "SB", "BB", "UTG", etc.
+
+  // Board
+  flop        String[]  @default([]) // ["Qs", "Jh", "2c"]
+  turn        String?   // "7d"
+  river       String?   // "Ac"
+
+  // Villain info (optional)
+  villainCards   String[] @default([])
+  villainPosition String?
+
+  // Actions per street (stored as JSON)
+  preflopAction  Json?   // [{player: "hero", action: "raise", amount: 15}, ...]
+  flopAction     Json?
+  turnAction     Json?
+  riverAction    Json?
+
+  // Result
+  potSize     Float?
+  result      String    // "won", "lost", "split"
+  profit      Float     @default(0)
+
+  // Notes
+  title       String?   // Short title like "Cooler vs set"
+  notes       String?
+
+  playedAt    DateTime  @default(now())
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([playedAt])
 }
 
 model Session {
