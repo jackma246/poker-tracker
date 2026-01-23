@@ -70,11 +70,16 @@ export default function SessionsPage() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h1 className="text-2xl font-bold">Sessions</h1>
-        {activeSessions.length === 0 && (
-          <Link href="/sessions/new" className="btn btn-primary">
-            New Session
+        <div className="flex gap-2">
+          <Link href="/sessions/import" className="btn btn-secondary">
+            Add Past
           </Link>
-        )}
+          {activeSessions.length === 0 && (
+            <Link href="/sessions/new" className="btn btn-primary">
+              New Session
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Active Session */}
