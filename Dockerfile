@@ -17,6 +17,9 @@ COPY . .
 # Generate Prisma client
 RUN npx prisma generate
 
+# Ensure public directory exists
+RUN mkdir -p public
+
 # Build Next.js
 RUN npm run build
 
