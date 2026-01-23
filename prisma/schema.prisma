@@ -1,0 +1,53 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id           String    @id @default(cuid())
+  email        String    @unique
+  name         String?
+  passwordHash String
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  sessions     Session[]
+}
+
+model Session {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // Session details
+  location    String
+  blinds      String    // e.g., "1/2", "2/5"
+  tableSize   Int       @default(9) // 6-max, 9-max, etc.
+
+  // Money tracking
+  buyIn       Float
+  cashOut     Float?
+  tips        Float     @default(0)
+
+  // Rebuys stored as JSON array of amounts
+  rebuys      Float[]   @default([])
+
+  // Timing
+  startTime   DateTime  @default(now())
+  endTime     DateTime?
+
+  // Optional notes
+  notes       String?
+
+  // Status
+  isActive    Boolean   @default(true)
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([userId])
+  @@index([startTime])
+}
