@@ -2,17 +2,17 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar,
-  Cell,
-} from "recharts";
+import dynamic from "next/dynamic";
+
+const ProfitOverTimeChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.ProfitOverTimeChart),
+  { ssr: false }
+);
+
+const ProfitByLocationChart = dynamic(
+  () => import("@/components/Charts").then((mod) => mod.ProfitByLocationChart),
+  { ssr: false }
+);
 
 interface Stats {
   totalSessions: number;
@@ -156,67 +156,12 @@ export default function DashboardPage() {
 
       {/* Profit Over Time Chart */}
       {stats && stats.profitOverTime.length > 1 && (
-        <div className="card">
-          <h3 className="font-bold mb-4">Profit Over Time</h3>
-          <ResponsiveContainer width="100%" height={200}>
-            <LineChart data={stats.profitOverTime}>
-              <XAxis
-                dataKey="date"
-                tick={{ fontSize: 12, fill: "var(--muted)" }}
-                tickFormatter={(v) => new Date(v).toLocaleDateString("en-US", { month: "short", day: "numeric" })}
-              />
-              <YAxis
-                tick={{ fontSize: 12, fill: "var(--muted)" }}
-                tickFormatter={(v) => `$${v}`}
-              />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--card)",
-                  border: "1px solid var(--card-border)",
-                  borderRadius: "8px",
-                }}
-                formatter={(value) => [`$${Number(value).toFixed(0)}`, "Cumulative"]}
-                labelFormatter={(label) => new Date(label).toLocaleDateString()}
-              />
-              <Line
-                type="monotone"
-                dataKey="cumulative"
-                stroke="var(--primary)"
-                strokeWidth={2}
-                dot={false}
-              />
-            </LineChart>
-          </ResponsiveContainer>
-        </div>
+        <ProfitOverTimeChart data={stats.profitOverTime} />
       )}
 
       {/* Profit by Location */}
       {locationData.length > 0 && (
-        <div className="card">
-          <h3 className="font-bold mb-4">Profit by Location</h3>
-          <ResponsiveContainer width="100%" height={Math.max(150, locationData.length * 40)}>
-            <BarChart data={locationData} layout="vertical">
-              <XAxis type="number" tickFormatter={(v) => `$${v}`} tick={{ fontSize: 12, fill: "var(--muted)" }} />
-              <YAxis type="category" dataKey="name" tick={{ fontSize: 12, fill: "var(--muted)" }} width={100} />
-              <Tooltip
-                contentStyle={{
-                  background: "var(--card)",
-                  border: "1px solid var(--card-border)",
-                  borderRadius: "8px",
-                }}
-                formatter={(value) => [`$${Number(value).toFixed(0)}`, "Profit"]}
-              />
-              <Bar dataKey="profit" radius={[0, 4, 4, 0]}>
-                {locationData.map((entry, index) => (
-                  <Cell
-                    key={`cell-${index}`}
-                    fill={entry.profit >= 0 ? "var(--primary)" : "var(--danger)"}
-                  />
-                ))}
-              </Bar>
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
+        <ProfitByLocationChart data={locationData} />
       )}
 
       {/* Empty State */}
