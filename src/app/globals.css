@@ -1,140 +1,293 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #ededed;
-  --card: #1a1a1a;
-  --card-border: #2a2a2a;
-  --primary: #22c55e;
-  --primary-hover: #16a34a;
-  --danger: #ef4444;
-  --danger-hover: #dc2626;
-  --muted: #737373;
+  /* Dark theme inspired by Fastroll */
+  --background: #0d1117;
+  --foreground: #e6edf3;
+  --card: #161b22;
+  --card-hover: #1c2128;
+  --card-border: #30363d;
+  --primary: #238636;
+  --primary-light: #2ea043;
+  --primary-bg: rgba(35, 134, 54, 0.15);
+  --danger: #da3633;
+  --danger-bg: rgba(218, 54, 51, 0.15);
+  --warning: #d29922;
+  --warning-bg: rgba(210, 153, 34, 0.15);
+  --muted: #8b949e;
+  --muted-bg: rgba(139, 148, 158, 0.1);
+
+  /* Poker colors */
+  --spade: #1a1a2e;
+  --heart: #e63946;
+  --diamond: #4895ef;
+  --club: #2d6a4f;
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: system-ui, -apple-system, sans-serif;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "Noto Sans", Helvetica, Arial, sans-serif;
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
 }
 
-/* Custom scrollbar */
+/* Scrollbar */
 ::-webkit-scrollbar {
-  width: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--card);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--card-border);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 /* Input styles */
 input, select, textarea {
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 8px;
-  padding: 12px 16px;
+  border-radius: 6px;
+  padding: 10px 12px;
   color: var(--foreground);
   width: 100%;
-  font-size: 16px; /* Prevents zoom on iOS */
+  font-size: 14px;
+  transition: border-color 0.15s ease;
 }
 
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--primary);
+  box-shadow: 0 0 0 3px var(--primary-bg);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--muted);
 }
 
 /* Button styles */
 .btn {
-  padding: 12px 24px;
-  border-radius: 8px;
-  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 10px 16px;
+  border-radius: 6px;
+  font-weight: 500;
+  font-size: 14px;
   cursor: pointer;
-  transition: all 0.2s;
-  border: none;
-  font-size: 16px;
+  transition: all 0.15s ease;
+  border: 1px solid transparent;
 }
 
 .btn-primary {
   background: var(--primary);
-  color: black;
+  color: white;
+  border-color: var(--primary);
 }
 
 .btn-primary:hover {
-  background: var(--primary-hover);
+  background: var(--primary-light);
+  border-color: var(--primary-light);
 }
 
 .btn-primary:disabled {
   background: var(--muted);
+  border-color: var(--muted);
   cursor: not-allowed;
+  opacity: 0.6;
 }
 
 .btn-danger {
   background: var(--danger);
   color: white;
+  border-color: var(--danger);
 }
 
 .btn-danger:hover {
-  background: var(--danger-hover);
+  opacity: 0.9;
 }
 
 .btn-secondary {
   background: var(--card);
   color: var(--foreground);
-  border: 1px solid var(--card-border);
+  border-color: var(--card-border);
 }
 
 .btn-secondary:hover {
+  background: var(--card-hover);
   border-color: var(--muted);
 }
 
-/* Card styles */
+/* Card/Container styles */
 .card {
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 20px;
+  border-radius: 8px;
+  padding: 16px;
+}
+
+.card-hover:hover {
+  background: var(--card-hover);
+  border-color: var(--muted);
 }
 
 /* Stat card */
 .stat-card {
   background: var(--card);
   border: 1px solid var(--card-border);
-  border-radius: 12px;
-  padding: 16px;
+  border-radius: 8px;
+  padding: 12px 16px;
 }
 
 .stat-value {
-  font-size: 24px;
-  font-weight: 700;
+  font-size: 20px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
 }
 
 .stat-label {
-  font-size: 14px;
+  font-size: 12px;
   color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
 }
 
-/* Profit/Loss colors */
+/* Profit/Loss */
 .profit {
-  color: var(--primary);
+  color: var(--primary-light);
 }
 
 .loss {
   color: var(--danger);
 }
 
-/* Mobile-friendly touch targets */
+/* Action chips */
+.action-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.action-fold { background: var(--danger-bg); color: var(--danger); }
+.action-check { background: var(--muted-bg); color: var(--muted); }
+.action-call { background: var(--primary-bg); color: var(--primary-light); }
+.action-bet { background: var(--primary-bg); color: var(--primary-light); }
+.action-raise { background: var(--warning-bg); color: var(--warning); }
+.action-allin { background: var(--danger-bg); color: var(--danger); }
+
+/* Tab navigation */
+.tab-nav {
+  display: flex;
+  gap: 2px;
+  background: var(--card);
+  padding: 3px;
+  border-radius: 8px;
+}
+
+.tab-btn {
+  flex: 1;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--muted);
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.tab-btn:hover {
+  color: var(--foreground);
+}
+
+.tab-btn.active {
+  background: var(--primary);
+  color: white;
+}
+
+/* Poker card styling */
+.poker-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: white;
+  border-radius: 4px;
+  font-weight: 700;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.3);
+  user-select: none;
+}
+
+.poker-card.spade { color: var(--spade); }
+.poker-card.heart { color: var(--heart); }
+.poker-card.diamond { color: var(--diamond); }
+.poker-card.club { color: var(--club); }
+
+.poker-card.selected {
+  box-shadow: 0 0 0 2px var(--primary), 0 2px 8px rgba(35, 134, 54, 0.4);
+}
+
+.poker-card.disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Section headers */
+.section-header {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  margin-bottom: 12px;
+}
+
+/* Badge */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.badge-won { background: var(--primary-bg); color: var(--primary-light); }
+.badge-lost { background: var(--danger-bg); color: var(--danger); }
+.badge-split { background: var(--muted-bg); color: var(--muted); }
+
+/* Mobile optimizations */
 @media (max-width: 640px) {
   .btn {
-    padding: 14px 24px;
+    padding: 12px 16px;
     width: 100%;
   }
 
-  input, select {
-    padding: 14px 16px;
+  input, select, textarea {
+    padding: 12px;
+    font-size: 16px; /* Prevent zoom on iOS */
   }
+}
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-in {
+  animation: fadeIn 0.2s ease-out;
 }
