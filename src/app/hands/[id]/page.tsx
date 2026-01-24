@@ -4,6 +4,7 @@ import { useEffect, useState, use } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { CardDisplay } from "@/components/CardPicker";
+import HandReplayer from "@/components/HandReplayer";
 
 interface Action {
   player: string;
@@ -92,6 +93,7 @@ export default function HandDetailPage({
   const [loading, setLoading] = useState(true);
   const [deleting, setDeleting] = useState(false);
   const [showDelete, setShowDelete] = useState(false);
+  const [showReplayer, setShowReplayer] = useState(false);
 
   useEffect(() => {
     fetch(`/api/hands/${id}`)
@@ -163,6 +165,14 @@ export default function HandDetailPage({
           {hand.potSize && ` • Pot: $${hand.potSize}`}
         </div>
       </div>
+
+      {/* Replay button */}
+      <button
+        onClick={() => setShowReplayer(true)}
+        className="btn btn-primary w-full"
+      >
+        Replay Hand
+      </button>
 
       {/* Hero Info */}
       <div className="card">
@@ -276,6 +286,11 @@ export default function HandDetailPage({
             </div>
           </div>
         </div>
+      )}
+
+      {/* Hand Replayer */}
+      {showReplayer && (
+        <HandReplayer hand={hand} onClose={() => setShowReplayer(false)} />
       )}
     </div>
   );
