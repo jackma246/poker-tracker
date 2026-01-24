@@ -375,14 +375,12 @@ export default function NewHandPage() {
 
           {/* Amount input */}
           <div className="flex gap-2 mb-3">
-            <div className="relative flex-1">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
+            <div className="flex-1">
               <input
                 type="number"
                 value={actionAmount}
                 onChange={(e) => setActionAmount(e.target.value)}
-                placeholder="Amount"
-                className="pl-7"
+                placeholder="$ Amount (optional)"
                 inputMode="numeric"
               />
             </div>
@@ -555,31 +553,23 @@ export default function NewHandPage() {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <div className="text-xs text-[var(--muted)] mb-1">Pot Size</div>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
-                <input
-                  type="number"
-                  value={potSize}
-                  onChange={(e) => setPotSize(e.target.value)}
-                  placeholder="0"
-                  className="pl-7"
-                  inputMode="numeric"
-                />
-              </div>
+              <input
+                type="number"
+                value={potSize}
+                onChange={(e) => setPotSize(e.target.value)}
+                placeholder="$ 0"
+                inputMode="numeric"
+              />
             </div>
             <div>
               <div className="text-xs text-[var(--muted)] mb-1">Your Profit</div>
-              <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
-                <input
-                  type="number"
-                  value={profit}
-                  onChange={(e) => setProfit(e.target.value)}
-                  placeholder="0"
-                  className="pl-7"
-                  inputMode="numeric"
-                />
-              </div>
+              <input
+                type="number"
+                value={profit}
+                onChange={(e) => setProfit(e.target.value)}
+                placeholder="$ 0"
+                inputMode="numeric"
+              />
             </div>
           </div>
         </div>
