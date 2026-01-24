@@ -499,13 +499,13 @@ export default function NewHandPage() {
 
                     {villain.cards.length > 0 && (
                       <div>
-                        <div className="text-xs text-[var(--muted)] mb-1">Position</div>
+                        <div className="text-xs text-[var(--muted)] mb-1">Position (tap again to clear)</div>
                         <div className="flex flex-wrap gap-1">
                           {positions.map((pos) => (
                             <button
                               key={pos}
                               type="button"
-                              onClick={() => updateVillainPosition(villain.id, pos)}
+                              onClick={() => updateVillainPosition(villain.id, villain.position === pos ? "" : pos)}
                               className={`px-2 py-1 rounded text-xs transition-colors ${
                                 villain.position === pos
                                   ? "bg-[var(--primary)] text-white"
