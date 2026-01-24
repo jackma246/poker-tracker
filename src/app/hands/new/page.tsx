@@ -1,22 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import CardPicker, { CardDisplay } from "@/components/CardPicker";
 import PositionPicker from "@/components/PositionPicker";
 
-interface Player {
-  id: string;
-  position: string;
-  stack: number;
-  cards: string[];
-  isHero: boolean;
-  hasFolded: boolean;
-}
-
 interface Action {
-  player: string;
   position: string;
   action: string;
   amount?: number;
@@ -34,18 +24,19 @@ type Step =
   | "river-action"
   | "result";
 
-const POSITIONS_9MAX = ["SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN"];
-const POSITIONS_6MAX = ["SB", "BB", "UTG", "HJ", "CO", "BTN"];
+const POSITIONS_9MAX = ["UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"];
+const POSITIONS_6MAX = ["UTG", "HJ", "CO", "BTN", "SB", "BB"];
+
+// Postflop order: SB first
+const POSTFLOP_9MAX = ["SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN"];
+const POSTFLOP_6MAX = ["SB", "BB", "UTG", "HJ", "CO", "BTN"];
 
 export default function NewHandPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Current step
   const [step, setStep] = useState<Step>("hero");
-
-  // Game setup
   const [tableSize, setTableSize] = useState<6 | 9>(9);
   const [blinds, setBlinds] = useState("1/2");
   const [customBlinds, setCustomBlinds] = useState("");
@@ -55,8 +46,13 @@ export default function NewHandPage() {
   const [heroPosition, setHeroPosition] = useState("");
   const [heroStack, setHeroStack] = useState("");
 
-  // Players in the hand (including hero)
-  const [players, setPlayers] = useState<Player[]>([]);
+  // Villains (positions we want to track cards for at showdown)
+  const [villainPositions, setVillainPositions] = useState<Set<string>>(new Set());
+  const [villainStacks, setVillainStacks] = useState<Record<string, number>>({});
+  const [villainCards, setVillainCards] = useState<Record<string, string[]>>({});
+
+  // Folded positions
+  const [foldedPositions, setFoldedPositions] = useState<Set<string>>(new Set());
 
   // Board
   const [flop, setFlop] = useState<string[]>([]);
@@ -69,7 +65,6 @@ export default function NewHandPage() {
   const [turnAction, setTurnAction] = useState<Action[]>([]);
   const [riverAction, setRiverAction] = useState<Action[]>([]);
 
-  // Current action state
   const [actionAmount, setActionAmount] = useState("");
 
   // Result
@@ -79,94 +74,92 @@ export default function NewHandPage() {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
 
-  const positions = tableSize === 9 ? POSITIONS_9MAX : POSITIONS_6MAX;
+  const preflopOrder = tableSize === 9 ? POSITIONS_9MAX : POSITIONS_6MAX;
+  const postflopOrder = tableSize === 9 ? POSTFLOP_9MAX : POSTFLOP_6MAX;
   const effectiveBlinds = blinds === "custom" ? customBlinds : blinds;
 
+  // All positions in the hand (hero + villains)
+  const allPlayersInHand = useMemo(() => {
+    const set = new Set(villainPositions);
+    if (heroPosition) set.add(heroPosition);
+    return set;
+  }, [villainPositions, heroPosition]);
+
+  // Active positions (in hand and not folded)
+  const activePositions = useMemo(() => {
+    return new Set([...allPlayersInHand].filter((pos) => !foldedPositions.has(pos)));
+  }, [allPlayersInHand, foldedPositions]);
+
   // All used cards
-  const allUsedCards = [
-    ...heroCards,
-    ...flop,
-    ...turn,
-    ...river,
-    ...players.flatMap((p) => p.cards),
-  ];
+  const allUsedCards = useMemo(() => {
+    const cards = [...heroCards, ...flop, ...turn, ...river];
+    Object.values(villainCards).forEach((vc) => cards.push(...vc));
+    return cards;
+  }, [heroCards, flop, turn, river, villainCards]);
 
-  // Get active players (not folded)
-  const activePlayers = players.filter((p) => !p.hasFolded);
+  // Get who needs to act next in a betting round
+  function getNextToAct(actions: Action[], order: string[]): string | null {
+    // Find positions in hand that haven't folded
+    const activeInOrder = order.filter(
+      (pos) => allPlayersInHand.has(pos) && !foldedPositions.has(pos)
+    );
 
-  // Get preflop action order (UTG first, then around to BB)
-  function getPreflopOrder(): Player[] {
-    const order = [...positions];
-    // Move SB and BB to end for preflop
-    const sbIdx = order.indexOf("SB");
-    const bbIdx = order.indexOf("BB");
-    if (sbIdx !== -1) order.push(order.splice(sbIdx, 1)[0]);
-    if (bbIdx !== -1) order.push(order.splice(order.indexOf("BB"), 1)[0]);
+    if (activeInOrder.length <= 1) return null;
 
-    return order
-      .map((pos) => players.find((p) => p.position === pos))
-      .filter((p): p is Player => p !== undefined && !p.hasFolded);
-  }
-
-  // Get postflop action order (SB first, or first active player after)
-  function getPostflopOrder(): Player[] {
-    return positions
-      .map((pos) => players.find((p) => p.position === pos))
-      .filter((p): p is Player => p !== undefined && !p.hasFolded);
-  }
-
-  // Initialize players when moving from hero to players step
-  function initializePlayers() {
-    if (heroPosition) {
-      const hero: Player = {
-        id: "hero",
-        position: heroPosition,
-        stack: parseFloat(heroStack) || 0,
-        cards: heroCards,
-        isHero: true,
-        hasFolded: false,
-      };
-      setPlayers([hero]);
+    // Find the last aggressive action (bet/raise)
+    let lastRaiseIdx = -1;
+    for (let i = actions.length - 1; i >= 0; i--) {
+      if (["bet", "raise", "all-in"].includes(actions[i].action)) {
+        lastRaiseIdx = i;
+        break;
+      }
     }
+
+    // Get positions that have acted since the last raise
+    const actedSinceRaise = new Set<string>();
+    const startIdx = lastRaiseIdx >= 0 ? lastRaiseIdx : 0;
+    for (let i = startIdx; i < actions.length; i++) {
+      actedSinceRaise.add(actions[i].position);
+    }
+
+    // If no raise yet, everyone needs to act once
+    if (lastRaiseIdx === -1) {
+      for (const pos of activeInOrder) {
+        const hasActed = actions.some((a) => a.position === pos);
+        if (!hasActed) return pos;
+      }
+      return null; // Everyone acted, no raises
+    }
+
+    // After a raise, everyone after the raiser needs to act
+    const raiserPos = actions[lastRaiseIdx].position;
+    const raiserOrderIdx = activeInOrder.indexOf(raiserPos);
+
+    // Go around the table from after the raiser
+    for (let i = 1; i < activeInOrder.length; i++) {
+      const idx = (raiserOrderIdx + i) % activeInOrder.length;
+      const pos = activeInOrder[idx];
+      if (!actedSinceRaise.has(pos)) {
+        return pos;
+      }
+    }
+
+    return null; // Everyone has acted on the raise
   }
 
-  // Add a villain
-  function addVillain(position: string) {
-    if (players.some((p) => p.position === position)) return;
-
-    const villain: Player = {
-      id: `v-${Date.now()}`,
-      position,
-      stack: 0,
-      cards: [],
-      isHero: false,
-      hasFolded: false,
-    };
-    setPlayers([...players, villain]);
-  }
-
-  // Remove a villain
-  function removeVillain(id: string) {
-    setPlayers(players.filter((p) => p.id !== id));
-  }
-
-  // Update villain stack
-  function updateVillainStack(id: string, stack: number) {
-    setPlayers(players.map((p) => (p.id === id ? { ...p, stack } : p)));
+  // Check if betting round is complete
+  function isBettingComplete(actions: Action[], order: string[]): boolean {
+    return getNextToAct(actions, order) === null;
   }
 
   // Record an action
   function recordAction(
-    player: Player,
+    position: string,
     action: string,
     currentActions: Action[],
     setActions: (a: Action[]) => void
   ) {
-    const newAction: Action = {
-      player: player.isHero ? "Hero" : player.position,
-      position: player.position,
-      action,
-    };
+    const newAction: Action = { position, action };
 
     if (actionAmount && ["call", "bet", "raise", "all-in"].includes(action)) {
       newAction.amount = parseFloat(actionAmount);
@@ -175,98 +168,77 @@ export default function NewHandPage() {
     setActions([...currentActions, newAction]);
     setActionAmount("");
 
-    // Mark player as folded if they fold
     if (action === "fold") {
-      setPlayers(players.map((p) => (p.id === player.id ? { ...p, hasFolded: true } : p)));
+      setFoldedPositions(new Set([...foldedPositions, position]));
     }
   }
 
-  // Fold to a specific player
-  function foldTo(
-    targetPlayer: Player,
-    order: Player[],
+  // Fold everyone up to a position
+  function foldToPosition(
+    targetPos: string,
+    order: string[],
     currentActions: Action[],
     setActions: (a: Action[]) => void
   ) {
-    const targetIdx = order.findIndex((p) => p.id === targetPlayer.id);
-    const actedPositions = new Set(currentActions.map((a) => a.position));
+    const activeInOrder = order.filter(
+      (pos) => allPlayersInHand.has(pos) && !foldedPositions.has(pos)
+    );
 
     const folds: Action[] = [];
-    const foldedIds: string[] = [];
+    const newFolded = new Set(foldedPositions);
 
-    for (let i = 0; i < targetIdx; i++) {
-      const player = order[i];
-      if (!actedPositions.has(player.position) && !player.hasFolded) {
-        folds.push({
-          player: player.isHero ? "Hero" : player.position,
-          position: player.position,
-          action: "fold",
-        });
-        foldedIds.push(player.id);
+    for (const pos of activeInOrder) {
+      if (pos === targetPos) break;
+
+      const hasActed = currentActions.some((a) => a.position === pos);
+      if (!hasActed) {
+        folds.push({ position: pos, action: "fold" });
+        newFolded.add(pos);
       }
     }
 
-    setActions([...currentActions, ...folds]);
-    setPlayers(
-      players.map((p) => (foldedIds.includes(p.id) ? { ...p, hasFolded: true } : p))
-    );
+    if (folds.length > 0) {
+      setActions([...currentActions, ...folds]);
+      setFoldedPositions(newFolded);
+    }
   }
 
-  // Check if street is complete (all active players have acted)
-  function isStreetComplete(actions: Action[]): boolean {
-    const actedPositions = new Set(actions.map((a) => a.position));
-    return activePlayers.every((p) => actedPositions.has(p.position) || p.hasFolded);
-  }
-
-  // Get players who haven't acted yet this street
-  function getPlayersToAct(actions: Action[], order: Player[]): Player[] {
-    const actedPositions = new Set(actions.map((a) => a.position));
-    return order.filter((p) => !actedPositions.has(p.position) && !p.hasFolded);
-  }
-
-  // Navigate steps
+  // Navigation
   function nextStep() {
     switch (step) {
       case "hero":
         if (heroCards.length === 2 && heroPosition) {
-          initializePlayers();
           setStep("players");
         }
         break;
       case "players":
-        if (players.length >= 2) setStep("preflop");
+        if (villainPositions.size >= 1) setStep("preflop");
         break;
       case "preflop":
-        if (activePlayers.length <= 1 || isStreetComplete(preflopAction)) {
-          if (activePlayers.length <= 1) {
-            setStep("result");
-          } else {
-            setStep("flop-cards");
-          }
+        if (activePositions.size <= 1) {
+          setStep("result");
+        } else if (isBettingComplete(preflopAction, preflopOrder)) {
+          setStep("flop-cards");
         }
         break;
       case "flop-cards":
         if (flop.length === 3) setStep("flop-action");
         break;
       case "flop-action":
-        if (activePlayers.length <= 1 || isStreetComplete(flopAction)) {
-          if (activePlayers.length <= 1) {
-            setStep("result");
-          } else {
-            setStep("turn-card");
-          }
+        if (activePositions.size <= 1) {
+          setStep("result");
+        } else if (isBettingComplete(flopAction, postflopOrder)) {
+          setStep("turn-card");
         }
         break;
       case "turn-card":
         if (turn.length === 1) setStep("turn-action");
         break;
       case "turn-action":
-        if (activePlayers.length <= 1 || isStreetComplete(turnAction)) {
-          if (activePlayers.length <= 1) {
-            setStep("result");
-          } else {
-            setStep("river-card");
-          }
+        if (activePositions.size <= 1) {
+          setStep("result");
+        } else if (isBettingComplete(turnAction, postflopOrder)) {
+          setStep("river-card");
         }
         break;
       case "river-card":
@@ -301,12 +273,12 @@ export default function NewHandPage() {
     setError(null);
     setLoading(true);
 
-    const villains = players
-      .filter((p) => !p.isHero && p.cards.length > 0)
-      .map((p, i) => ({
+    const villains = [...villainPositions]
+      .filter((pos) => villainCards[pos]?.length > 0)
+      .map((pos, i) => ({
         name: `V${i + 1}`,
-        cards: p.cards,
-        position: p.position,
+        cards: villainCards[pos],
+        position: pos,
       }));
 
     try {
@@ -318,7 +290,7 @@ export default function NewHandPage() {
           heroPosition,
           blinds: effectiveBlinds,
           tableSize,
-          playerCount: players.length,
+          playerCount: allPlayersInHand.size,
           flop: flop.length === 3 ? flop : [],
           turn: turn[0] || null,
           river: river[0] || null,
@@ -350,15 +322,32 @@ export default function NewHandPage() {
     }
   }
 
-  // Render action buttons for a street
+  function getPositionLabel(pos: string): string {
+    if (pos === heroPosition) return `${pos} (Hero)`;
+    return pos;
+  }
+
+  // Render action UI for a street
   function renderActionStreet(
     streetName: string,
-    order: Player[],
+    order: string[],
     actions: Action[],
     setActions: (a: Action[]) => void
   ) {
-    const playersToAct = getPlayersToAct(actions, order);
-    const currentPlayer = playersToAct[0];
+    const nextToAct = getNextToAct(actions, order);
+    const activeInOrder = order.filter(
+      (pos) => allPlayersInHand.has(pos) && !foldedPositions.has(pos)
+    );
+
+    // Get positions that still need to act
+    const needsToAct = activeInOrder.filter((pos) => {
+      if (pos === nextToAct) return true;
+      // Check if they need to act after current player
+      const currentIdx = activeInOrder.indexOf(nextToAct || "");
+      const posIdx = activeInOrder.indexOf(pos);
+      if (currentIdx === -1) return false;
+      return posIdx > currentIdx;
+    });
 
     return (
       <div className="space-y-4">
@@ -373,12 +362,31 @@ export default function NewHandPage() {
           </div>
         )}
 
+        {/* Players still in */}
+        <div className="flex flex-wrap gap-2 justify-center">
+          {activeInOrder.map((pos) => (
+            <span
+              key={pos}
+              className={`text-xs px-2 py-1 rounded ${
+                pos === heroPosition
+                  ? "bg-[var(--primary)] text-white"
+                  : "bg-[var(--card)] border border-[var(--card-border)]"
+              }`}
+            >
+              {pos === heroPosition ? "HERO" : pos}
+            </span>
+          ))}
+        </div>
+
         {/* Actions so far */}
         {actions.length > 0 && (
           <div className="flex flex-wrap gap-1 p-2 bg-[var(--background)] rounded-lg">
             {actions.map((action, i) => (
-              <span key={i} className={`action-chip action-${action.action.replace("-", "")}`}>
-                {action.player}: {action.action}
+              <span
+                key={i}
+                className={`action-chip action-${action.action.replace("-", "")}`}
+              >
+                {action.position === heroPosition ? "Hero" : action.position}: {action.action}
                 {action.amount && ` $${action.amount}`}
               </span>
             ))}
@@ -386,14 +394,18 @@ export default function NewHandPage() {
         )}
 
         {/* Current player to act */}
-        {currentPlayer ? (
+        {nextToAct ? (
           <div className="space-y-3">
             <div className="text-center">
               <span className="text-[var(--muted)]">Action on: </span>
-              <span className={`font-bold ${currentPlayer.isHero ? "text-[var(--primary)]" : ""}`}>
-                {currentPlayer.isHero ? "HERO" : currentPlayer.position}
+              <span
+                className={`font-bold text-lg ${
+                  nextToAct === heroPosition ? "text-[var(--primary)]" : ""
+                }`}
+              >
+                {nextToAct === heroPosition ? "HERO" : nextToAct}
               </span>
-              {currentPlayer.isHero && (
+              {nextToAct === heroPosition && (
                 <div className="flex justify-center mt-2">
                   <CardDisplay cards={heroCards} size="md" />
                 </div>
@@ -415,31 +427,37 @@ export default function NewHandPage() {
                 <button
                   key={action}
                   type="button"
-                  onClick={() => recordAction(currentPlayer, action, actions, setActions)}
-                  className={`py-3 rounded-lg font-medium capitalize action-chip action-${action.replace("-", "")}`}
+                  onClick={() => recordAction(nextToAct, action, actions, setActions)}
+                  className={`py-3 rounded-lg font-medium capitalize action-chip action-${action.replace(
+                    "-",
+                    ""
+                  )}`}
                 >
                   {action}
                 </button>
               ))}
             </div>
 
-            {/* Shortcuts */}
-            <div className="flex flex-wrap gap-2">
-              {playersToAct.slice(1).map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => foldTo(p, order, actions, setActions)}
-                  className="text-xs px-3 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)]"
-                >
-                  Folds to {p.isHero ? "Hero" : p.position}
-                </button>
-              ))}
-            </div>
+            {/* Fold-to shortcuts */}
+            {needsToAct.length > 1 && (
+              <div className="flex flex-wrap gap-2">
+                {needsToAct.slice(1).map((pos) => (
+                  <button
+                    key={pos}
+                    type="button"
+                    onClick={() => foldToPosition(pos, order, actions, setActions)}
+                    className="text-xs px-3 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)]"
+                  >
+                    Folds to {pos === heroPosition ? "Hero" : pos}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
         ) : (
-          <div className="text-center text-[var(--muted)] py-4">
-            All players have acted
+          <div className="text-center py-4">
+            <div className="text-[var(--primary)] font-medium">Betting complete</div>
+            <div className="text-sm text-[var(--muted)]">Press Next to continue</div>
           </div>
         )}
 
@@ -451,11 +469,9 @@ export default function NewHandPage() {
               const lastAction = actions[actions.length - 1];
               setActions(actions.slice(0, -1));
               if (lastAction.action === "fold") {
-                setPlayers(
-                  players.map((p) =>
-                    p.position === lastAction.position ? { ...p, hasFolded: false } : p
-                  )
-                );
+                const newFolded = new Set(foldedPositions);
+                newFolded.delete(lastAction.position);
+                setFoldedPositions(newFolded);
               }
             }}
             className="btn btn-secondary w-full"
@@ -468,16 +484,20 @@ export default function NewHandPage() {
   }
 
   const COMMON_BLINDS = ["1/2", "1/3", "2/5", "5/10"];
+  const allPositions = tableSize === 9 ? POSTFLOP_9MAX : POSTFLOP_6MAX;
 
   return (
     <div className="max-w-lg mx-auto pb-24">
       {/* Header */}
       <div className="flex items-center justify-between mb-4">
-        <Link href="/hands" className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm">
-          ← Cancel
+        <Link
+          href="/hands"
+          className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
+        >
+          Cancel
         </Link>
         <div className="text-sm text-[var(--muted)]">
-          {step.replace("-", " ").replace(/^\w/, (c) => c.toUpperCase())}
+          {step.replace(/-/g, " ").replace(/^\w/, (c) => c.toUpperCase())}
         </div>
       </div>
 
@@ -492,7 +512,6 @@ export default function NewHandPage() {
         <div className="space-y-5">
           <h2 className="text-lg font-semibold">Your Hand</h2>
 
-          {/* Table size & Blinds */}
           <div className="grid grid-cols-2 gap-4">
             <div>
               <div className="section-header">Table</div>
@@ -502,7 +521,7 @@ export default function NewHandPage() {
                     key={size}
                     type="button"
                     onClick={() => setTableSize(size as 6 | 9)}
-                    className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    className={`flex-1 py-2 rounded-lg text-sm font-medium ${
                       tableSize === size
                         ? "bg-[var(--primary)] text-white"
                         : "bg-[var(--card)] border border-[var(--card-border)]"
@@ -521,7 +540,9 @@ export default function NewHandPage() {
                 className="w-full"
               >
                 {COMMON_BLINDS.map((b) => (
-                  <option key={b} value={b}>{b}</option>
+                  <option key={b} value={b}>
+                    {b}
+                  </option>
                 ))}
                 <option value="custom">Custom</option>
               </select>
@@ -537,7 +558,6 @@ export default function NewHandPage() {
             </div>
           </div>
 
-          {/* Hero cards */}
           <CardPicker
             label="Your Hole Cards"
             selectedCards={heroCards}
@@ -545,7 +565,6 @@ export default function NewHandPage() {
             maxCards={2}
           />
 
-          {/* Position */}
           <div>
             <div className="section-header">Your Position</div>
             <PositionPicker
@@ -555,7 +574,6 @@ export default function NewHandPage() {
             />
           </div>
 
-          {/* Stack */}
           <div>
             <div className="section-header">Your Stack (optional)</div>
             <input
@@ -572,77 +590,81 @@ export default function NewHandPage() {
       {/* Step: Players Setup */}
       {step === "players" && (
         <div className="space-y-5">
-          <h2 className="text-lg font-semibold">Who's in the hand?</h2>
+          <h2 className="text-lg font-semibold">Who else is in the hand?</h2>
           <p className="text-sm text-[var(--muted)]">
-            Add other players who are in this hand (villains)
+            Select all positions that are involved in this hand
           </p>
 
-          {/* Current players */}
-          <div className="space-y-2">
-            {players.map((player) => (
-              <div
-                key={player.id}
-                className={`card flex items-center justify-between ${
-                  player.isHero ? "border-[var(--primary)]" : ""
-                }`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`font-bold ${player.isHero ? "text-[var(--primary)]" : ""}`}>
-                    {player.position}
-                  </span>
-                  {player.isHero && (
-                    <>
-                      <span className="text-xs text-[var(--muted)]">HERO</span>
-                      <CardDisplay cards={heroCards} size="sm" />
-                    </>
-                  )}
-                </div>
-                {!player.isHero && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="number"
-                      value={player.stack || ""}
-                      onChange={(e) => updateVillainStack(player.id, parseFloat(e.target.value) || 0)}
-                      placeholder="Stack"
-                      className="w-24 text-sm py-1"
-                      inputMode="numeric"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeVillain(player.id)}
-                      className="text-[var(--danger)] text-sm"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-
-          {/* Add player buttons */}
-          <div>
-            <div className="section-header">Add Player</div>
-            <div className="flex flex-wrap gap-2">
-              {positions
-                .filter((pos) => !players.some((p) => p.position === pos))
-                .map((pos) => (
+          {/* Position grid */}
+          <div className="grid grid-cols-3 gap-2">
+            {allPositions
+              .filter((pos) => pos !== heroPosition)
+              .map((pos) => {
+                const isSelected = villainPositions.has(pos);
+                return (
                   <button
                     key={pos}
                     type="button"
-                    onClick={() => addVillain(pos)}
-                    className="px-3 py-2 rounded-lg text-sm bg-[var(--card)] border border-[var(--card-border)] hover:border-[var(--primary)]"
+                    onClick={() => {
+                      const newSet = new Set(villainPositions);
+                      if (isSelected) {
+                        newSet.delete(pos);
+                      } else {
+                        newSet.add(pos);
+                      }
+                      setVillainPositions(newSet);
+                    }}
+                    className={`py-3 rounded-lg font-medium text-sm ${
+                      isSelected
+                        ? "bg-[var(--danger)] text-white"
+                        : "bg-[var(--card)] border border-[var(--card-border)]"
+                    }`}
                   >
-                    + {pos}
+                    {pos}
                   </button>
-                ))}
+                );
+              })}
+          </div>
+
+          {/* Hero indicator */}
+          <div className="card border-[var(--primary)]">
+            <div className="flex items-center gap-3">
+              <span className="font-bold text-[var(--primary)]">{heroPosition}</span>
+              <span className="text-xs text-[var(--muted)]">HERO</span>
+              <CardDisplay cards={heroCards} size="sm" />
             </div>
           </div>
+
+          {/* Selected villains with stack inputs */}
+          {villainPositions.size > 0 && (
+            <div className="space-y-2">
+              <div className="section-header">Villain Stacks (optional)</div>
+              {[...villainPositions].map((pos) => (
+                <div key={pos} className="flex items-center gap-3">
+                  <span className="font-medium w-16">{pos}</span>
+                  <input
+                    type="number"
+                    value={villainStacks[pos] || ""}
+                    onChange={(e) =>
+                      setVillainStacks({
+                        ...villainStacks,
+                        [pos]: parseFloat(e.target.value) || 0,
+                      })
+                    }
+                    placeholder="$ Stack"
+                    className="flex-1"
+                    inputMode="numeric"
+                  />
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
       {/* Step: Preflop Action */}
-      {step === "preflop" && renderActionStreet("Preflop", getPreflopOrder(), preflopAction, setPreflopAction)}
+      {step === "preflop" &&
+        renderActionStreet("Preflop", preflopOrder, preflopAction, setPreflopAction)}
 
       {/* Step: Flop Cards */}
       {step === "flop-cards" && (
@@ -659,7 +681,8 @@ export default function NewHandPage() {
       )}
 
       {/* Step: Flop Action */}
-      {step === "flop-action" && renderActionStreet("Flop", getPostflopOrder(), flopAction, setFlopAction)}
+      {step === "flop-action" &&
+        renderActionStreet("Flop", postflopOrder, flopAction, setFlopAction)}
 
       {/* Step: Turn Card */}
       {step === "turn-card" && (
@@ -679,7 +702,8 @@ export default function NewHandPage() {
       )}
 
       {/* Step: Turn Action */}
-      {step === "turn-action" && renderActionStreet("Turn", getPostflopOrder(), turnAction, setTurnAction)}
+      {step === "turn-action" &&
+        renderActionStreet("Turn", postflopOrder, turnAction, setTurnAction)}
 
       {/* Step: River Card */}
       {step === "river-card" && (
@@ -700,7 +724,8 @@ export default function NewHandPage() {
       )}
 
       {/* Step: River Action */}
-      {step === "river-action" && renderActionStreet("River", getPostflopOrder(), riverAction, setRiverAction)}
+      {step === "river-action" &&
+        renderActionStreet("River", postflopOrder, riverAction, setRiverAction)}
 
       {/* Step: Result */}
       {step === "result" && (
@@ -717,24 +742,24 @@ export default function NewHandPage() {
           )}
 
           {/* Villain showdown cards */}
-          {players.filter((p) => !p.isHero && !p.hasFolded).length > 0 && (
+          {[...villainPositions].filter((pos) => !foldedPositions.has(pos)).length > 0 && (
             <div className="card">
               <div className="section-header">Villain Cards (at showdown)</div>
               <div className="space-y-3">
-                {players
-                  .filter((p) => !p.isHero && !p.hasFolded)
-                  .map((villain) => (
-                    <div key={villain.id}>
-                      <div className="text-sm text-[var(--muted)] mb-1">{villain.position}</div>
+                {[...villainPositions]
+                  .filter((pos) => !foldedPositions.has(pos))
+                  .map((pos) => (
+                    <div key={pos}>
+                      <div className="text-sm text-[var(--muted)] mb-1">{pos}</div>
                       <CardPicker
-                        selectedCards={villain.cards}
+                        selectedCards={villainCards[pos] || []}
                         onSelect={(cards) =>
-                          setPlayers(
-                            players.map((p) => (p.id === villain.id ? { ...p, cards } : p))
-                          )
+                          setVillainCards({ ...villainCards, [pos]: cards })
                         }
                         maxCards={2}
-                        disabledCards={allUsedCards.filter((c) => !villain.cards.includes(c))}
+                        disabledCards={allUsedCards.filter(
+                          (c) => !(villainCards[pos] || []).includes(c)
+                        )}
                       />
                     </div>
                   ))}
@@ -753,7 +778,7 @@ export default function NewHandPage() {
                 key={r.id}
                 type="button"
                 onClick={() => setResult(r.id)}
-                className={`flex-1 py-3 rounded-lg font-semibold transition-all text-sm ${
+                className={`flex-1 py-3 rounded-lg font-semibold text-sm ${
                   result === r.id ? "scale-[1.02]" : ""
                 }`}
                 style={{
@@ -837,7 +862,7 @@ export default function NewHandPage() {
               onClick={nextStep}
               disabled={
                 (step === "hero" && (heroCards.length !== 2 || !heroPosition)) ||
-                (step === "players" && players.length < 2) ||
+                (step === "players" && villainPositions.size < 1) ||
                 (step === "flop-cards" && flop.length !== 3) ||
                 (step === "turn-card" && turn.length !== 1) ||
                 (step === "river-card" && river.length !== 1)
