@@ -5,25 +5,39 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import CardPicker from "@/components/CardPicker";
 import PositionPicker from "@/components/PositionPicker";
-import ActionBuilder, { Action } from "@/components/ActionBuilder";
 
-const BLINDS_OPTIONS = ["1/2", "1/3", "2/5", "5/10"];
+interface Action {
+  player: string;
+  action: string;
+  amount?: number;
+}
+
+const COMMON_BLINDS = ["1/2", "1/3", "2/5", "5/10", "1/2/5"];
 const RESULTS = [
   { id: "won", label: "Won", color: "var(--primary)" },
   { id: "lost", label: "Lost", color: "var(--danger)" },
   { id: "split", label: "Split", color: "var(--muted)" },
 ];
 
+const ACTION_BUTTONS = [
+  { id: "fold", label: "Fold", color: "#ef4444" },
+  { id: "check", label: "Check", color: "#737373" },
+  { id: "call", label: "Call", color: "#22c55e" },
+  { id: "bet", label: "Bet", color: "#22c55e" },
+  { id: "raise", label: "Raise", color: "#f59e0b" },
+  { id: "all-in", label: "All-In", color: "#ef4444" },
+];
+
 export default function NewHandPage() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState(1);
 
   // Form state
   const [heroCards, setHeroCards] = useState<string[]>([]);
   const [heroPosition, setHeroPosition] = useState("");
   const [blinds, setBlinds] = useState("1/2");
+  const [customBlinds, setCustomBlinds] = useState("");
   const [tableSize, setTableSize] = useState<6 | 9>(9);
 
   const [flop, setFlop] = useState<string[]>([]);
@@ -33,10 +47,15 @@ export default function NewHandPage() {
   const [villainCards, setVillainCards] = useState<string[]>([]);
   const [villainPosition, setVillainPosition] = useState("");
 
+  // Simplified action tracking per street
   const [preflopAction, setPreflopAction] = useState<Action[]>([]);
   const [flopAction, setFlopAction] = useState<Action[]>([]);
   const [turnAction, setTurnAction] = useState<Action[]>([]);
   const [riverAction, setRiverAction] = useState<Action[]>([]);
+
+  // Current action input state
+  const [currentStreet, setCurrentStreet] = useState<"preflop" | "flop" | "turn" | "river">("preflop");
+  const [actionAmount, setActionAmount] = useState("");
 
   const [result, setResult] = useState("won");
   const [potSize, setPotSize] = useState("");
@@ -44,10 +63,64 @@ export default function NewHandPage() {
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
 
-  // All selected cards (to disable in other pickers)
+  const effectiveBlinds = blinds === "custom" ? customBlinds : blinds;
   const allSelectedCards = [...heroCards, ...flop, ...turn, ...river, ...villainCards];
 
-  async function handleSubmit() {
+  // Get current street actions
+  const getCurrentActions = () => {
+    switch (currentStreet) {
+      case "preflop": return preflopAction;
+      case "flop": return flopAction;
+      case "turn": return turnAction;
+      case "river": return riverAction;
+    }
+  };
+
+  const setCurrentActions = (actions: Action[]) => {
+    switch (currentStreet) {
+      case "preflop": setPreflopAction(actions); break;
+      case "flop": setFlopAction(actions); break;
+      case "turn": setTurnAction(actions); break;
+      case "river": setRiverAction(actions); break;
+    }
+  };
+
+  // Quick action add
+  function addAction(player: string, action: string) {
+    const newAction: Action = { player, action };
+    if (actionAmount && ["call", "bet", "raise", "all-in"].includes(action)) {
+      newAction.amount = parseFloat(actionAmount);
+    }
+    setCurrentActions([...getCurrentActions(), newAction]);
+    setActionAmount("");
+  }
+
+  // Shortcut: Fold to hero
+  function foldToHero() {
+    const positions = tableSize === 9
+      ? ["UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"]
+      : ["UTG", "HJ", "CO", "BTN", "SB", "BB"];
+
+    const heroIdx = positions.indexOf(heroPosition);
+    const folds: Action[] = [];
+
+    // Add folds for positions before hero
+    for (let i = 0; i < heroIdx; i++) {
+      folds.push({ player: positions[i], action: "fold" });
+    }
+
+    setCurrentActions([...getCurrentActions(), ...folds]);
+  }
+
+  // Remove last action
+  function undoAction() {
+    const actions = getCurrentActions();
+    if (actions.length > 0) {
+      setCurrentActions(actions.slice(0, -1));
+    }
+  }
+
+  async function handleSubmit(isDraft: boolean = false) {
     setError(null);
 
     if (heroCards.length !== 2) {
@@ -69,7 +142,7 @@ export default function NewHandPage() {
         body: JSON.stringify({
           heroCards,
           heroPosition,
-          blinds,
+          blinds: effectiveBlinds,
           tableSize,
           playerCount: tableSize,
           flop: flop.length === 3 ? flop : [],
@@ -81,10 +154,10 @@ export default function NewHandPage() {
           flopAction: flopAction.length > 0 ? flopAction : null,
           turnAction: turnAction.length > 0 ? turnAction : null,
           riverAction: riverAction.length > 0 ? riverAction : null,
-          result,
+          result: isDraft ? "lost" : result,
           potSize: parseFloat(potSize) || null,
           profit: parseFloat(profit) || 0,
-          title: title || null,
+          title: isDraft ? "Draft" : (title || null),
           notes: notes || null,
         }),
       });
@@ -105,15 +178,23 @@ export default function NewHandPage() {
   }
 
   return (
-    <div className="max-w-lg mx-auto pb-20">
-      <Link
-        href="/hands"
-        className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
-      >
-        ← Back to Hands
-      </Link>
+    <div className="max-w-lg mx-auto pb-24">
+      <div className="flex items-center justify-between mb-4">
+        <Link
+          href="/hands"
+          className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
+        >
+          ← Cancel
+        </Link>
+        <button
+          onClick={() => handleSubmit(true)}
+          className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
+        >
+          Save Draft
+        </button>
+      </div>
 
-      <h1 className="text-2xl font-bold mt-4 mb-6">Record Hand</h1>
+      <h1 className="text-2xl font-bold mb-6">Record Hand</h1>
 
       {error && (
         <div className="bg-[var(--danger)]/10 border border-[var(--danger)] text-[var(--danger)] px-4 py-3 rounded-lg mb-4">
@@ -121,99 +202,98 @@ export default function NewHandPage() {
         </div>
       )}
 
-      {/* Step indicators */}
-      <div className="flex gap-2 mb-6">
-        {[1, 2, 3, 4].map((s) => (
-          <button
-            key={s}
-            onClick={() => setStep(s)}
-            className={`flex-1 h-2 rounded-full transition-colors ${
-              step >= s ? "bg-[var(--primary)]" : "bg-[var(--card-border)]"
-            }`}
-          />
-        ))}
-      </div>
+      <div className="space-y-6">
+        {/* Hero Cards */}
+        <CardPicker
+          label="Your Hole Cards"
+          selectedCards={heroCards}
+          onSelect={setHeroCards}
+          maxCards={2}
+        />
 
-      {/* Step 1: Hero Info */}
-      {step === 1 && (
-        <div className="space-y-6">
-          <CardPicker
-            label="Your Hole Cards *"
-            selectedCards={heroCards}
-            onSelect={setHeroCards}
-            maxCards={2}
-          />
-
-          <PositionPicker
-            label="Your Position *"
-            selected={heroPosition}
-            onSelect={setHeroPosition}
-            tableSize={tableSize}
-          />
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="block text-sm mb-2">Blinds</label>
-              <div className="flex flex-wrap gap-2">
-                {BLINDS_OPTIONS.map((b) => (
-                  <button
-                    key={b}
-                    type="button"
-                    onClick={() => setBlinds(b)}
-                    className={`px-3 py-2 rounded-lg text-sm transition-colors ${
-                      blinds === b
-                        ? "bg-[var(--primary)] text-black"
-                        : "bg-[var(--card)] border border-[var(--card-border)]"
-                    }`}
-                  >
-                    {b}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div>
-              <label className="block text-sm mb-2">Table Size</label>
-              <div className="flex gap-2">
-                {[6, 9].map((size) => (
-                  <button
-                    key={size}
-                    type="button"
-                    onClick={() => setTableSize(size as 6 | 9)}
-                    className={`flex-1 py-2 rounded-lg text-sm transition-colors ${
-                      tableSize === size
-                        ? "bg-[var(--primary)] text-black"
-                        : "bg-[var(--card)] border border-[var(--card-border)]"
-                    }`}
-                  >
-                    {size}-max
-                  </button>
-                ))}
-              </div>
+        {/* Position & Table */}
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <label className="block text-sm mb-2">Position</label>
+            <PositionPicker
+              selected={heroPosition}
+              onSelect={setHeroPosition}
+              tableSize={tableSize}
+            />
+          </div>
+          <div>
+            <label className="block text-sm mb-2">Table</label>
+            <div className="flex gap-2 mb-2">
+              {[6, 9].map((size) => (
+                <button
+                  key={size}
+                  type="button"
+                  onClick={() => setTableSize(size as 6 | 9)}
+                  className={`flex-1 py-2 rounded-lg text-sm transition-colors ${
+                    tableSize === size
+                      ? "bg-[var(--primary)] text-black"
+                      : "bg-[var(--card)] border border-[var(--card-border)]"
+                  }`}
+                >
+                  {size}-max
+                </button>
+              ))}
             </div>
           </div>
-
-          <button
-            onClick={() => setStep(2)}
-            disabled={heroCards.length !== 2 || !heroPosition}
-            className="btn btn-primary w-full"
-          >
-            Next: Board
-          </button>
         </div>
-      )}
 
-      {/* Step 2: Board & Villain */}
-      {step === 2 && (
-        <div className="space-y-6">
-          <CardPicker
-            label="Flop"
-            selectedCards={flop}
-            onSelect={setFlop}
-            maxCards={3}
-            disabledCards={allSelectedCards.filter((c) => !flop.includes(c))}
-          />
+        {/* Blinds - Custom Input */}
+        <div>
+          <label className="block text-sm mb-2">Blinds</label>
+          <div className="flex flex-wrap gap-2 mb-2">
+            {COMMON_BLINDS.map((b) => (
+              <button
+                key={b}
+                type="button"
+                onClick={() => { setBlinds(b); setCustomBlinds(""); }}
+                className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                  blinds === b
+                    ? "bg-[var(--primary)] text-black"
+                    : "bg-[var(--card)] border border-[var(--card-border)]"
+                }`}
+              >
+                {b}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={() => setBlinds("custom")}
+              className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                blinds === "custom"
+                  ? "bg-[var(--primary)] text-black"
+                  : "bg-[var(--card)] border border-[var(--card-border)]"
+              }`}
+            >
+              Custom
+            </button>
+          </div>
+          {blinds === "custom" && (
+            <input
+              type="text"
+              value={customBlinds}
+              onChange={(e) => setCustomBlinds(e.target.value)}
+              placeholder="e.g., 1/2/5 or 2/5 w/ $10 BTN"
+              autoFocus
+            />
+          )}
+        </div>
 
-          {flop.length === 3 && (
+        {/* Board Cards */}
+        <div className="card">
+          <h3 className="font-bold mb-3">Board</h3>
+          <div className="grid grid-cols-3 gap-3">
+            <CardPicker
+              label="Flop"
+              selectedCards={flop}
+              onSelect={setFlop}
+              maxCards={3}
+              disabledCards={allSelectedCards.filter((c) => !flop.includes(c))}
+            />
             <CardPicker
               label="Turn"
               selectedCards={turn}
@@ -221,9 +301,6 @@ export default function NewHandPage() {
               maxCards={1}
               disabledCards={allSelectedCards.filter((c) => !turn.includes(c))}
             />
-          )}
-
-          {turn.length === 1 && (
             <CardPicker
               label="River"
               selectedCards={river}
@@ -231,125 +308,201 @@ export default function NewHandPage() {
               maxCards={1}
               disabledCards={allSelectedCards.filter((c) => !river.includes(c))}
             />
-          )}
-
-          <div className="border-t border-[var(--card-border)] pt-6">
-            <CardPicker
-              label="Villain Cards (optional)"
-              selectedCards={villainCards}
-              onSelect={setVillainCards}
-              maxCards={2}
-              disabledCards={allSelectedCards.filter((c) => !villainCards.includes(c))}
-            />
-
-            {villainCards.length > 0 && (
-              <div className="mt-4">
-                <label className="block text-sm mb-2">Villain Position</label>
-                <div className="flex flex-wrap gap-2">
-                  {(tableSize === 9 ? ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"] : ["BTN", "SB", "BB", "UTG", "HJ", "CO"]).map((pos) => (
-                    <button
-                      key={pos}
-                      type="button"
-                      onClick={() => setVillainPosition(pos)}
-                      className={`px-3 py-1 rounded-lg text-sm transition-colors ${
-                        villainPosition === pos
-                          ? "bg-[var(--primary)] text-black"
-                          : "bg-[var(--card)] border border-[var(--card-border)]"
-                      }`}
-                    >
-                      {pos}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-          </div>
-
-          <div className="flex gap-4">
-            <button onClick={() => setStep(1)} className="btn btn-secondary flex-1">
-              Back
-            </button>
-            <button onClick={() => setStep(3)} className="btn btn-primary flex-1">
-              Next: Action
-            </button>
           </div>
         </div>
-      )}
 
-      {/* Step 3: Action */}
-      {step === 3 && (
-        <div className="space-y-4">
-          <ActionBuilder
-            street="Preflop"
-            actions={preflopAction}
-            onChange={setPreflopAction}
-          />
+        {/* Action Builder */}
+        <div className="card">
+          <h3 className="font-bold mb-3">Action</h3>
 
-          {flop.length === 3 && (
-            <ActionBuilder
-              street="Flop"
-              actions={flopAction}
-              onChange={setFlopAction}
-            />
-          )}
-
-          {turn.length === 1 && (
-            <ActionBuilder
-              street="Turn"
-              actions={turnAction}
-              onChange={setTurnAction}
-            />
-          )}
-
-          {river.length === 1 && (
-            <ActionBuilder
-              street="River"
-              actions={riverAction}
-              onChange={setRiverAction}
-            />
-          )}
-
-          <div className="flex gap-4 pt-4">
-            <button onClick={() => setStep(2)} className="btn btn-secondary flex-1">
-              Back
-            </button>
-            <button onClick={() => setStep(4)} className="btn btn-primary flex-1">
-              Next: Result
-            </button>
+          {/* Street tabs */}
+          <div className="flex gap-1 mb-3">
+            {(["preflop", "flop", "turn", "river"] as const).map((street) => (
+              <button
+                key={street}
+                type="button"
+                onClick={() => setCurrentStreet(street)}
+                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors capitalize ${
+                  currentStreet === street
+                    ? "bg-[var(--primary)] text-black"
+                    : "bg-[var(--card-border)] text-[var(--muted)]"
+                }`}
+              >
+                {street}
+              </button>
+            ))}
           </div>
-        </div>
-      )}
 
-      {/* Step 4: Result */}
-      {step === 4 && (
-        <div className="space-y-6">
-          <div>
-            <label className="block text-sm mb-2">Result</label>
-            <div className="flex gap-2">
-              {RESULTS.map((r) => (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setResult(r.id)}
-                  className={`flex-1 py-3 rounded-lg font-bold transition-all ${
-                    result === r.id ? "scale-105" : ""
-                  }`}
+          {/* Current actions display */}
+          {getCurrentActions().length > 0 && (
+            <div className="flex flex-wrap gap-1 mb-3 p-2 bg-[var(--background)] rounded-lg">
+              {getCurrentActions().map((action, i) => (
+                <span
+                  key={i}
+                  className="px-2 py-1 rounded text-xs"
                   style={{
-                    backgroundColor: result === r.id ? r.color : "var(--card)",
-                    color: result === r.id ? (r.id === "won" ? "black" : "white") : "var(--foreground)",
-                    borderWidth: 2,
-                    borderColor: r.color,
+                    backgroundColor: ACTION_BUTTONS.find((a) => a.id === action.action)?.color + "33",
+                    color: ACTION_BUTTONS.find((a) => a.id === action.action)?.color,
                   }}
                 >
-                  {r.label}
+                  {action.player}: {action.action}
+                  {action.amount && ` $${action.amount}`}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Amount input */}
+          <div className="flex gap-2 mb-3">
+            <div className="relative flex-1">
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
+              <input
+                type="number"
+                value={actionAmount}
+                onChange={(e) => setActionAmount(e.target.value)}
+                placeholder="Amount"
+                className="pl-7 py-2"
+                inputMode="numeric"
+              />
+            </div>
+            <button
+              type="button"
+              onClick={undoAction}
+              className="px-4 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)] text-sm"
+            >
+              Undo
+            </button>
+          </div>
+
+          {/* Hero actions */}
+          <div className="mb-3">
+            <div className="text-xs text-[var(--muted)] mb-1">Hero</div>
+            <div className="flex flex-wrap gap-2">
+              {ACTION_BUTTONS.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => addAction("Hero", action.id)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{
+                    backgroundColor: action.color + "22",
+                    color: action.color,
+                    borderWidth: 1,
+                    borderColor: action.color,
+                  }}
+                >
+                  {action.label}
                 </button>
               ))}
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          {/* Villain actions */}
+          <div className="mb-3">
+            <div className="text-xs text-[var(--muted)] mb-1">Villain</div>
+            <div className="flex flex-wrap gap-2">
+              {ACTION_BUTTONS.map((action) => (
+                <button
+                  key={action.id}
+                  type="button"
+                  onClick={() => addAction("Villain", action.id)}
+                  className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
+                  style={{
+                    backgroundColor: action.color + "22",
+                    color: action.color,
+                    borderWidth: 1,
+                    borderColor: action.color,
+                  }}
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Shortcuts */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={foldToHero}
+              className="flex-1 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)] text-xs"
+            >
+              Fold to Hero
+            </button>
+            <button
+              type="button"
+              onClick={() => addAction("Other", "fold")}
+              className="flex-1 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)] text-xs"
+            >
+              Others Fold
+            </button>
+          </div>
+        </div>
+
+        {/* Villain Cards (optional) */}
+        <div className="card">
+          <h3 className="font-bold mb-3">Villain (optional)</h3>
+          <CardPicker
+            label="Villain Cards"
+            selectedCards={villainCards}
+            onSelect={setVillainCards}
+            maxCards={2}
+            disabledCards={allSelectedCards.filter((c) => !villainCards.includes(c))}
+          />
+          {villainCards.length > 0 && (
+            <div className="mt-3">
+              <label className="block text-xs text-[var(--muted)] mb-1">Villain Position</label>
+              <div className="flex flex-wrap gap-2">
+                {(tableSize === 9
+                  ? ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"]
+                  : ["BTN", "SB", "BB", "UTG", "HJ", "CO"]
+                ).map((pos) => (
+                  <button
+                    key={pos}
+                    type="button"
+                    onClick={() => setVillainPosition(pos)}
+                    className={`px-2 py-1 rounded text-xs transition-colors ${
+                      villainPosition === pos
+                        ? "bg-[var(--primary)] text-black"
+                        : "bg-[var(--background)] border border-[var(--card-border)]"
+                    }`}
+                  >
+                    {pos}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Result */}
+        <div className="card">
+          <h3 className="font-bold mb-3">Result</h3>
+
+          <div className="flex gap-2 mb-4">
+            {RESULTS.map((r) => (
+              <button
+                key={r.id}
+                type="button"
+                onClick={() => setResult(r.id)}
+                className={`flex-1 py-3 rounded-lg font-bold transition-all ${
+                  result === r.id ? "scale-105" : ""
+                }`}
+                style={{
+                  backgroundColor: result === r.id ? r.color : "var(--background)",
+                  color: result === r.id ? (r.id === "won" ? "black" : "white") : "var(--foreground)",
+                  borderWidth: 2,
+                  borderColor: r.color,
+                }}
+              >
+                {r.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm mb-2">Pot Size</label>
+              <label className="block text-xs text-[var(--muted)] mb-1">Pot Size</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
                 <input
@@ -363,7 +516,7 @@ export default function NewHandPage() {
               </div>
             </div>
             <div>
-              <label className="block text-sm mb-2">Your Profit/Loss</label>
+              <label className="block text-xs text-[var(--muted)] mb-1">Your Profit</label>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
                 <input
@@ -377,41 +530,38 @@ export default function NewHandPage() {
               </div>
             </div>
           </div>
-
-          <div>
-            <label className="block text-sm mb-2">Title (optional)</label>
-            <input
-              type="text"
-              value={title}
-              onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g., Cooler vs set, Bluff gone wrong"
-            />
-          </div>
-
-          <div>
-            <label className="block text-sm mb-2">Notes (optional)</label>
-            <textarea
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="What happened? What did you learn?"
-              rows={3}
-            />
-          </div>
-
-          <div className="flex gap-4">
-            <button onClick={() => setStep(3)} className="btn btn-secondary flex-1">
-              Back
-            </button>
-            <button
-              onClick={handleSubmit}
-              disabled={loading}
-              className="btn btn-primary flex-1"
-            >
-              {loading ? "Saving..." : "Save Hand"}
-            </button>
-          </div>
         </div>
-      )}
+
+        {/* Notes */}
+        <div>
+          <label className="block text-sm mb-2">Title (optional)</label>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            placeholder="e.g., Set over set cooler"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm mb-2">Notes (optional)</label>
+          <textarea
+            value={notes}
+            onChange={(e) => setNotes(e.target.value)}
+            placeholder="What happened? What would you do differently?"
+            rows={3}
+          />
+        </div>
+
+        {/* Submit */}
+        <button
+          onClick={() => handleSubmit(false)}
+          disabled={loading || heroCards.length !== 2 || !heroPosition}
+          className="btn btn-primary w-full"
+        >
+          {loading ? "Saving..." : "Save Hand"}
+        </button>
+      </div>
     </div>
   );
 }

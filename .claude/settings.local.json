@@ -9,7 +9,10 @@
       "Bash(npm run db:push:*)",
       "Bash(git push)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "WebSearch",
+      "WebFetch(domain:fastrollpoker.com)",
+      "WebFetch(domain:apps.apple.com)"
     ]
   }
 }
