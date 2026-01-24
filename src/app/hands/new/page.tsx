@@ -820,7 +820,7 @@ export default function NewHandPage() {
         <div className="max-w-lg mx-auto flex gap-3">
           {step !== "hero" && (
             <button type="button" onClick={prevStep} className="btn btn-secondary flex-1">
-              ← Back
+              Back
             </button>
           )}
           {step === "result" ? (
@@ -844,7 +844,7 @@ export default function NewHandPage() {
               }
               className="btn btn-primary flex-1"
             >
-              Next →
+              Next
             </button>
           )}
         </div>
