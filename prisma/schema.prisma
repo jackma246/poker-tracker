@@ -37,9 +37,9 @@ model Hand {
   turn        String?   // "7d"
   river       String?   // "Ac"
 
-  // Villain info (optional)
-  villainCards   String[] @default([])
-  villainPosition String?
+  // Villains (supports multiple) - stored as JSON array
+  // [{cards: ["Ah", "Kd"], position: "BTN", name: "V1"}, ...]
+  villains       Json?
 
   // Actions per street (stored as JSON)
   preflopAction  Json?   // [{player: "hero", action: "raise", amount: 15}, ...]

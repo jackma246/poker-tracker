@@ -11,6 +11,12 @@ interface Action {
   amount?: number;
 }
 
+interface Villain {
+  name: string;
+  cards: string[];
+  position: string | null;
+}
+
 interface Hand {
   id: string;
   heroCards: string[];
@@ -21,8 +27,7 @@ interface Hand {
   flop: string[];
   turn: string | null;
   river: string | null;
-  villainCards: string[];
-  villainPosition: string | null;
+  villains: Villain[] | null;
   preflopAction: Action[] | null;
   flopAction: Action[] | null;
   turnAction: Action[] | null;
@@ -196,18 +201,27 @@ export default function HandDetailPage({
         </div>
       )}
 
-      {/* Villain */}
-      {hand.villainCards.length > 0 && (
+      {/* Villains */}
+      {hand.villains && hand.villains.length > 0 && (
         <div className="card">
-          <h3 className="font-bold mb-3">Villain</h3>
-          <div className="flex items-center gap-4">
-            <CardDisplay cards={hand.villainCards} size="md" />
-            {hand.villainPosition && (
-              <div>
-                <div className="font-medium">{hand.villainPosition}</div>
-                <div className="text-sm text-[var(--muted)]">Position</div>
+          <h3 className="font-bold mb-3">
+            {hand.villains.length === 1 ? "Villain" : "Villains"}
+          </h3>
+          <div className="space-y-3">
+            {hand.villains.map((villain, i) => (
+              <div key={i} className="flex items-center gap-4">
+                <CardDisplay cards={villain.cards} size="md" />
+                <div>
+                  <div className="font-medium">
+                    {villain.name}
+                    {villain.position && ` (${villain.position})`}
+                  </div>
+                  {villain.position && (
+                    <div className="text-sm text-[var(--muted)]">Position</div>
+                  )}
+                </div>
               </div>
-            )}
+            ))}
           </div>
         </div>
       )}

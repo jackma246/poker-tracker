@@ -3,13 +3,19 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import CardPicker from "@/components/CardPicker";
+import CardPicker, { CardDisplay } from "@/components/CardPicker";
 import PositionPicker from "@/components/PositionPicker";
 
 interface Action {
   player: string;
   action: string;
   amount?: number;
+}
+
+interface Villain {
+  id: number;
+  cards: string[];
+  position: string;
 }
 
 const COMMON_BLINDS = ["1/2", "1/3", "2/5", "5/10", "1/2/5"];
@@ -20,12 +26,12 @@ const RESULTS = [
 ];
 
 const ACTION_BUTTONS = [
-  { id: "fold", label: "Fold", color: "#ef4444" },
-  { id: "check", label: "Check", color: "#737373" },
-  { id: "call", label: "Call", color: "#22c55e" },
-  { id: "bet", label: "Bet", color: "#22c55e" },
-  { id: "raise", label: "Raise", color: "#f59e0b" },
-  { id: "all-in", label: "All-In", color: "#ef4444" },
+  { id: "fold", label: "Fold", color: "#da3633" },
+  { id: "check", label: "Check", color: "#8b949e" },
+  { id: "call", label: "Call", color: "#238636" },
+  { id: "bet", label: "Bet", color: "#238636" },
+  { id: "raise", label: "Raise", color: "#d29922" },
+  { id: "all-in", label: "All-In", color: "#da3633" },
 ];
 
 export default function NewHandPage() {
@@ -44,16 +50,16 @@ export default function NewHandPage() {
   const [turn, setTurn] = useState<string[]>([]);
   const [river, setRiver] = useState<string[]>([]);
 
-  const [villainCards, setVillainCards] = useState<string[]>([]);
-  const [villainPosition, setVillainPosition] = useState("");
+  // Multiple villains
+  const [villains, setVillains] = useState<Villain[]>([]);
+  const [nextVillainId, setNextVillainId] = useState(1);
 
-  // Simplified action tracking per street
+  // Action tracking per street
   const [preflopAction, setPreflopAction] = useState<Action[]>([]);
   const [flopAction, setFlopAction] = useState<Action[]>([]);
   const [turnAction, setTurnAction] = useState<Action[]>([]);
   const [riverAction, setRiverAction] = useState<Action[]>([]);
 
-  // Current action input state
   const [currentStreet, setCurrentStreet] = useState<"preflop" | "flop" | "turn" | "river">("preflop");
   const [actionAmount, setActionAmount] = useState("");
 
@@ -64,7 +70,28 @@ export default function NewHandPage() {
   const [notes, setNotes] = useState("");
 
   const effectiveBlinds = blinds === "custom" ? customBlinds : blinds;
-  const allSelectedCards = [...heroCards, ...flop, ...turn, ...river, ...villainCards];
+
+  // All selected cards (to disable in other pickers)
+  const allVillainCards = villains.flatMap((v) => v.cards);
+  const allSelectedCards = [...heroCards, ...flop, ...turn, ...river, ...allVillainCards];
+
+  // Villain management
+  function addVillain() {
+    setVillains([...villains, { id: nextVillainId, cards: [], position: "" }]);
+    setNextVillainId(nextVillainId + 1);
+  }
+
+  function removeVillain(id: number) {
+    setVillains(villains.filter((v) => v.id !== id));
+  }
+
+  function updateVillainCards(id: number, cards: string[]) {
+    setVillains(villains.map((v) => (v.id === id ? { ...v, cards } : v)));
+  }
+
+  function updateVillainPosition(id: number, position: string) {
+    setVillains(villains.map((v) => (v.id === id ? { ...v, position } : v)));
+  }
 
   // Get current street actions
   const getCurrentActions = () => {
@@ -85,7 +112,6 @@ export default function NewHandPage() {
     }
   };
 
-  // Quick action add
   function addAction(player: string, action: string) {
     const newAction: Action = { player, action };
     if (actionAmount && ["call", "bet", "raise", "all-in"].includes(action)) {
@@ -95,7 +121,6 @@ export default function NewHandPage() {
     setActionAmount("");
   }
 
-  // Shortcut: Fold to hero
   function foldToHero() {
     const positions = tableSize === 9
       ? ["UTG", "UTG+1", "MP", "MP+1", "HJ", "CO", "BTN", "SB", "BB"]
@@ -104,7 +129,6 @@ export default function NewHandPage() {
     const heroIdx = positions.indexOf(heroPosition);
     const folds: Action[] = [];
 
-    // Add folds for positions before hero
     for (let i = 0; i < heroIdx; i++) {
       folds.push({ player: positions[i], action: "fold" });
     }
@@ -112,7 +136,6 @@ export default function NewHandPage() {
     setCurrentActions([...getCurrentActions(), ...folds]);
   }
 
-  // Remove last action
   function undoAction() {
     const actions = getCurrentActions();
     if (actions.length > 0) {
@@ -135,6 +158,15 @@ export default function NewHandPage() {
 
     setLoading(true);
 
+    // Format villains for API
+    const formattedVillains = villains
+      .filter((v) => v.cards.length > 0)
+      .map((v, i) => ({
+        name: `V${i + 1}`,
+        cards: v.cards,
+        position: v.position || null,
+      }));
+
     try {
       const res = await fetch("/api/hands", {
         method: "POST",
@@ -148,8 +180,7 @@ export default function NewHandPage() {
           flop: flop.length === 3 ? flop : [],
           turn: turn[0] || null,
           river: river[0] || null,
-          villainCards: villainCards.length === 2 ? villainCards : [],
-          villainPosition: villainPosition || null,
+          villains: formattedVillains.length > 0 ? formattedVillains : null,
           preflopAction: preflopAction.length > 0 ? preflopAction : null,
           flopAction: flopAction.length > 0 ? flopAction : null,
           turnAction: turnAction.length > 0 ? turnAction : null,
@@ -177,13 +208,14 @@ export default function NewHandPage() {
     }
   }
 
+  const positions = tableSize === 9
+    ? ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"]
+    : ["BTN", "SB", "BB", "UTG", "HJ", "CO"];
+
   return (
     <div className="max-w-lg mx-auto pb-24">
       <div className="flex items-center justify-between mb-4">
-        <Link
-          href="/hands"
-          className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm"
-        >
+        <Link href="/hands" className="text-[var(--muted)] hover:text-[var(--foreground)] text-sm">
           ← Cancel
         </Link>
         <button
@@ -194,15 +226,15 @@ export default function NewHandPage() {
         </button>
       </div>
 
-      <h1 className="text-2xl font-bold mb-6">Record Hand</h1>
+      <h1 className="text-xl font-semibold mb-6">Record Hand</h1>
 
       {error && (
-        <div className="bg-[var(--danger)]/10 border border-[var(--danger)] text-[var(--danger)] px-4 py-3 rounded-lg mb-4">
+        <div className="bg-[var(--danger-bg)] border border-[var(--danger)] text-[var(--danger)] px-4 py-3 rounded-lg mb-4 text-sm">
           {error}
         </div>
       )}
 
-      <div className="space-y-6">
+      <div className="space-y-5">
         {/* Hero Cards */}
         <CardPicker
           label="Your Hole Cards"
@@ -214,7 +246,7 @@ export default function NewHandPage() {
         {/* Position & Table */}
         <div className="grid grid-cols-2 gap-4">
           <div>
-            <label className="block text-sm mb-2">Position</label>
+            <div className="section-header">Position</div>
             <PositionPicker
               selected={heroPosition}
               onSelect={setHeroPosition}
@@ -222,16 +254,16 @@ export default function NewHandPage() {
             />
           </div>
           <div>
-            <label className="block text-sm mb-2">Table</label>
-            <div className="flex gap-2 mb-2">
+            <div className="section-header">Table</div>
+            <div className="flex gap-2">
               {[6, 9].map((size) => (
                 <button
                   key={size}
                   type="button"
                   onClick={() => setTableSize(size as 6 | 9)}
-                  className={`flex-1 py-2 rounded-lg text-sm transition-colors ${
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
                     tableSize === size
-                      ? "bg-[var(--primary)] text-black"
+                      ? "bg-[var(--primary)] text-white"
                       : "bg-[var(--card)] border border-[var(--card-border)]"
                   }`}
                 >
@@ -242,18 +274,18 @@ export default function NewHandPage() {
           </div>
         </div>
 
-        {/* Blinds - Custom Input */}
+        {/* Blinds */}
         <div>
-          <label className="block text-sm mb-2">Blinds</label>
+          <div className="section-header">Blinds</div>
           <div className="flex flex-wrap gap-2 mb-2">
             {COMMON_BLINDS.map((b) => (
               <button
                 key={b}
                 type="button"
                 onClick={() => { setBlinds(b); setCustomBlinds(""); }}
-                className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+                className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                   blinds === b
-                    ? "bg-[var(--primary)] text-black"
+                    ? "bg-[var(--primary)] text-white"
                     : "bg-[var(--card)] border border-[var(--card-border)]"
                 }`}
               >
@@ -263,9 +295,9 @@ export default function NewHandPage() {
             <button
               type="button"
               onClick={() => setBlinds("custom")}
-              className={`px-3 py-2 rounded-lg text-sm transition-colors ${
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
                 blinds === "custom"
-                  ? "bg-[var(--primary)] text-black"
+                  ? "bg-[var(--primary)] text-white"
                   : "bg-[var(--card)] border border-[var(--card-border)]"
               }`}
             >
@@ -285,7 +317,7 @@ export default function NewHandPage() {
 
         {/* Board Cards */}
         <div className="card">
-          <h3 className="font-bold mb-3">Board</h3>
+          <div className="section-header">Board</div>
           <div className="grid grid-cols-3 gap-3">
             <CardPicker
               label="Flop"
@@ -313,20 +345,16 @@ export default function NewHandPage() {
 
         {/* Action Builder */}
         <div className="card">
-          <h3 className="font-bold mb-3">Action</h3>
+          <div className="section-header">Action</div>
 
           {/* Street tabs */}
-          <div className="flex gap-1 mb-3">
+          <div className="tab-nav mb-3">
             {(["preflop", "flop", "turn", "river"] as const).map((street) => (
               <button
                 key={street}
                 type="button"
                 onClick={() => setCurrentStreet(street)}
-                className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors capitalize ${
-                  currentStreet === street
-                    ? "bg-[var(--primary)] text-black"
-                    : "bg-[var(--card-border)] text-[var(--muted)]"
-                }`}
+                className={`tab-btn capitalize ${currentStreet === street ? "active" : ""}`}
               >
                 {street}
               </button>
@@ -337,14 +365,7 @@ export default function NewHandPage() {
           {getCurrentActions().length > 0 && (
             <div className="flex flex-wrap gap-1 mb-3 p-2 bg-[var(--background)] rounded-lg">
               {getCurrentActions().map((action, i) => (
-                <span
-                  key={i}
-                  className="px-2 py-1 rounded text-xs"
-                  style={{
-                    backgroundColor: ACTION_BUTTONS.find((a) => a.id === action.action)?.color + "33",
-                    color: ACTION_BUTTONS.find((a) => a.id === action.action)?.color,
-                  }}
-                >
+                <span key={i} className={`action-chip action-${action.action.replace("-", "")}`}>
                   {action.player}: {action.action}
                   {action.amount && ` $${action.amount}`}
                 </span>
@@ -361,7 +382,7 @@ export default function NewHandPage() {
                 value={actionAmount}
                 onChange={(e) => setActionAmount(e.target.value)}
                 placeholder="Amount"
-                className="pl-7 py-2"
+                className="pl-7"
                 inputMode="numeric"
               />
             </div>
@@ -377,19 +398,13 @@ export default function NewHandPage() {
           {/* Hero actions */}
           <div className="mb-3">
             <div className="text-xs text-[var(--muted)] mb-1">Hero</div>
-            <div className="flex flex-wrap gap-2">
+            <div className="flex flex-wrap gap-1.5">
               {ACTION_BUTTONS.map((action) => (
                 <button
                   key={action.id}
                   type="button"
                   onClick={() => addAction("Hero", action.id)}
-                  className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    backgroundColor: action.color + "22",
-                    color: action.color,
-                    borderWidth: 1,
-                    borderColor: action.color,
-                  }}
+                  className={`action-chip action-${action.id.replace("-", "")} cursor-pointer hover:opacity-80`}
                 >
                   {action.label}
                 </button>
@@ -399,24 +414,28 @@ export default function NewHandPage() {
 
           {/* Villain actions */}
           <div className="mb-3">
-            <div className="text-xs text-[var(--muted)] mb-1">Villain</div>
-            <div className="flex flex-wrap gap-2">
-              {ACTION_BUTTONS.map((action) => (
-                <button
-                  key={action.id}
-                  type="button"
-                  onClick={() => addAction("Villain", action.id)}
-                  className="px-3 py-2 rounded-lg text-sm font-medium transition-colors"
-                  style={{
-                    backgroundColor: action.color + "22",
-                    color: action.color,
-                    borderWidth: 1,
-                    borderColor: action.color,
-                  }}
-                >
-                  {action.label}
-                </button>
-              ))}
+            <div className="text-xs text-[var(--muted)] mb-1">
+              Villains {villains.length > 0 && `(${villains.length})`}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {villains.length === 0 ? (
+                <span className="text-xs text-[var(--muted)]">Add villains below to track their actions</span>
+              ) : (
+                villains.map((v, i) => (
+                  <div key={v.id} className="flex gap-1">
+                    {ACTION_BUTTONS.slice(0, 4).map((action) => (
+                      <button
+                        key={action.id}
+                        type="button"
+                        onClick={() => addAction(`V${i + 1}`, action.id)}
+                        className={`action-chip action-${action.id.replace("-", "")} cursor-pointer hover:opacity-80 text-[10px] px-1.5`}
+                      >
+                        V{i + 1} {action.label}
+                      </button>
+                    ))}
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
@@ -431,7 +450,7 @@ export default function NewHandPage() {
             </button>
             <button
               type="button"
-              onClick={() => addAction("Other", "fold")}
+              onClick={() => addAction("Others", "fold")}
               className="flex-1 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)] text-xs"
             >
               Others Fold
@@ -439,45 +458,78 @@ export default function NewHandPage() {
           </div>
         </div>
 
-        {/* Villain Cards (optional) */}
+        {/* Villains */}
         <div className="card">
-          <h3 className="font-bold mb-3">Villain (optional)</h3>
-          <CardPicker
-            label="Villain Cards"
-            selectedCards={villainCards}
-            onSelect={setVillainCards}
-            maxCards={2}
-            disabledCards={allSelectedCards.filter((c) => !villainCards.includes(c))}
-          />
-          {villainCards.length > 0 && (
-            <div className="mt-3">
-              <label className="block text-xs text-[var(--muted)] mb-1">Villain Position</label>
-              <div className="flex flex-wrap gap-2">
-                {(tableSize === 9
-                  ? ["BTN", "SB", "BB", "UTG", "UTG+1", "MP", "MP+1", "HJ", "CO"]
-                  : ["BTN", "SB", "BB", "UTG", "HJ", "CO"]
-                ).map((pos) => (
-                  <button
-                    key={pos}
-                    type="button"
-                    onClick={() => setVillainPosition(pos)}
-                    className={`px-2 py-1 rounded text-xs transition-colors ${
-                      villainPosition === pos
-                        ? "bg-[var(--primary)] text-black"
-                        : "bg-[var(--background)] border border-[var(--card-border)]"
-                    }`}
-                  >
-                    {pos}
-                  </button>
-                ))}
-              </div>
+          <div className="flex items-center justify-between mb-3">
+            <div className="section-header mb-0">Villains (optional)</div>
+            <button
+              type="button"
+              onClick={addVillain}
+              className="text-xs text-[var(--primary)] hover:underline"
+            >
+              + Add Villain
+            </button>
+          </div>
+
+          {villains.length === 0 ? (
+            <p className="text-sm text-[var(--muted)]">
+              Add villains to record their hole cards at showdown
+            </p>
+          ) : (
+            <div className="space-y-4">
+              {villains.map((villain, index) => (
+                <div key={villain.id} className="p-3 bg-[var(--background)] rounded-lg">
+                  <div className="flex items-center justify-between mb-2">
+                    <span className="text-sm font-medium">Villain {index + 1}</span>
+                    <button
+                      type="button"
+                      onClick={() => removeVillain(villain.id)}
+                      className="text-xs text-[var(--danger)] hover:underline"
+                    >
+                      Remove
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <CardPicker
+                      label="Cards"
+                      selectedCards={villain.cards}
+                      onSelect={(cards) => updateVillainCards(villain.id, cards)}
+                      maxCards={2}
+                      disabledCards={allSelectedCards.filter((c) => !villain.cards.includes(c))}
+                    />
+
+                    {villain.cards.length > 0 && (
+                      <div>
+                        <div className="text-xs text-[var(--muted)] mb-1">Position</div>
+                        <div className="flex flex-wrap gap-1">
+                          {positions.map((pos) => (
+                            <button
+                              key={pos}
+                              type="button"
+                              onClick={() => updateVillainPosition(villain.id, pos)}
+                              className={`px-2 py-1 rounded text-xs transition-colors ${
+                                villain.position === pos
+                                  ? "bg-[var(--primary)] text-white"
+                                  : "bg-[var(--card)] border border-[var(--card-border)]"
+                              }`}
+                            >
+                              {pos}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </div>
 
         {/* Result */}
         <div className="card">
-          <h3 className="font-bold mb-3">Result</h3>
+          <div className="section-header">Result</div>
 
           <div className="flex gap-2 mb-4">
             {RESULTS.map((r) => (
@@ -485,13 +537,13 @@ export default function NewHandPage() {
                 key={r.id}
                 type="button"
                 onClick={() => setResult(r.id)}
-                className={`flex-1 py-3 rounded-lg font-bold transition-all ${
-                  result === r.id ? "scale-105" : ""
+                className={`flex-1 py-3 rounded-lg font-semibold transition-all text-sm ${
+                  result === r.id ? "scale-[1.02]" : ""
                 }`}
                 style={{
                   backgroundColor: result === r.id ? r.color : "var(--background)",
-                  color: result === r.id ? (r.id === "won" ? "black" : "white") : "var(--foreground)",
-                  borderWidth: 2,
+                  color: result === r.id ? "white" : "var(--foreground)",
+                  borderWidth: 1,
                   borderColor: r.color,
                 }}
               >
@@ -502,7 +554,7 @@ export default function NewHandPage() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-xs text-[var(--muted)] mb-1">Pot Size</label>
+              <div className="text-xs text-[var(--muted)] mb-1">Pot Size</div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
                 <input
@@ -516,7 +568,7 @@ export default function NewHandPage() {
               </div>
             </div>
             <div>
-              <label className="block text-xs text-[var(--muted)] mb-1">Your Profit</label>
+              <div className="text-xs text-[var(--muted)] mb-1">Your Profit</div>
               <div className="relative">
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--muted)]">$</span>
                 <input
@@ -534,7 +586,7 @@ export default function NewHandPage() {
 
         {/* Notes */}
         <div>
-          <label className="block text-sm mb-2">Title (optional)</label>
+          <div className="section-header">Title (optional)</div>
           <input
             type="text"
             value={title}
@@ -544,7 +596,7 @@ export default function NewHandPage() {
         </div>
 
         <div>
-          <label className="block text-sm mb-2">Notes (optional)</label>
+          <div className="section-header">Notes (optional)</div>
           <textarea
             value={notes}
             onChange={(e) => setNotes(e.target.value)}

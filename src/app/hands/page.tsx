@@ -12,7 +12,7 @@ interface Hand {
   flop: string[];
   turn: string | null;
   river: string | null;
-  villainCards: string[];
+  villains: { name: string; cards: string[]; position: string | null }[] | null;
   result: string;
   profit: number;
   potSize: number | null;
