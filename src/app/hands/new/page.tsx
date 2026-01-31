@@ -202,6 +202,14 @@ export default function NewHandPage() {
     return currentBet;
   }
 
+  // Get stack size for a position
+  function getStackForPosition(position: string): number {
+    if (position === heroPosition) {
+      return parseFloat(heroStack) || 0;
+    }
+    return villainStacks[position] || 0;
+  }
+
   // Record an action
   function recordAction(
     position: string,
@@ -219,6 +227,12 @@ export default function NewHandPage() {
       const currentBet = getCurrentBetToCall(currentActions, isPreflop);
       if (currentBet > 0) {
         newAction.amount = currentBet;
+      }
+    } else if (action === "all-in") {
+      // Auto-fill all-in amount based on player's stack
+      const stack = getStackForPosition(position);
+      if (stack > 0) {
+        newAction.amount = stack;
       }
     }
 
@@ -397,6 +411,7 @@ export default function NewHandPage() {
   ) {
     const nextToAct = getNextToAct(actions, order, playersInHand);
     const currentBetToCall = getCurrentBetToCall(actions, isPreflop);
+    const nextToActStack = nextToAct ? getStackForPosition(nextToAct) : 0;
     const activeInOrder = order.filter(
       (pos) => playersInHand.has(pos) && !foldedPositions.has(pos)
     );
@@ -507,7 +522,11 @@ export default function NewHandPage() {
                     ""
                   )}`}
                 >
-                  {action === "call" && currentBetToCall > 0 ? `call $${currentBetToCall}` : action}
+                  {action === "call" && currentBetToCall > 0
+                    ? `call $${currentBetToCall}`
+                    : action === "all-in" && nextToActStack > 0
+                    ? `all-in $${nextToActStack}`
+                    : action}
                 </button>
               ))}
             </div>
