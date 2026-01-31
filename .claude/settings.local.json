@@ -12,7 +12,9 @@
       "Bash(git commit:*)",
       "WebSearch",
       "WebFetch(domain:fastrollpoker.com)",
-      "WebFetch(domain:apps.apple.com)"
+      "WebFetch(domain:apps.apple.com)",
+      "Bash(git push:*)",
+      "WebFetch(domain:imgur.com)"
     ]
   }
 }

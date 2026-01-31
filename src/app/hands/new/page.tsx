@@ -1059,7 +1059,44 @@ export default function NewHandPage() {
 
       {/* Navigation */}
       <div className="fixed bottom-0 left-0 right-0 p-4 bg-[var(--background)] border-t border-[var(--card-border)]">
-        <div className="max-w-lg mx-auto flex gap-3">{step !== "hero" && <button type="button" onClick={prevStep} className="btn btn-secondary flex-1">Back</button>}{step === "result" ? <button onClick={handleSubmit} disabled={loading} className="btn btn-primary flex-1">{loading ? "Saving..." : "Save Hand"}</button> : <button type="button" onClick={nextStep} disabled={(step === "hero" && (heroCards.length !== 2 || !heroPosition)) || (step === "players" && villainPositions.size < 1) || (step === "flop-cards" && flop.length !== 3) || (step === "turn-card" && turn.length !== 1) || (step === "river-card" && river.length !== 1)} className="btn btn-primary flex-1">Next</button>}</div>
+        <div className="max-w-lg mx-auto" style={{ display: "flex", gap: "12px" }}>
+          {step !== "hero" && (
+            <button
+              type="button"
+              onClick={prevStep}
+              className="btn btn-secondary"
+              style={{ flex: 1 }}
+            >
+              Back
+            </button>
+          )}
+          {step === "result" ? (
+            <button
+              onClick={handleSubmit}
+              disabled={loading}
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+            >
+              {loading ? "Saving..." : "Save Hand"}
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={nextStep}
+              disabled={
+                (step === "hero" && (heroCards.length !== 2 || !heroPosition)) ||
+                (step === "players" && villainPositions.size < 1) ||
+                (step === "flop-cards" && flop.length !== 3) ||
+                (step === "turn-card" && turn.length !== 1) ||
+                (step === "river-card" && river.length !== 1)
+              }
+              className="btn btn-primary"
+              style={{ flex: 1 }}
+            >
+              Next
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );
