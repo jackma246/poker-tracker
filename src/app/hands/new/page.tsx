@@ -54,6 +54,9 @@ export default function NewHandPage() {
   // Folded positions
   const [foldedPositions, setFoldedPositions] = useState<Set<string>>(new Set());
 
+  // All-in positions
+  const [allInPositions, setAllInPositions] = useState<Set<string>>(new Set());
+
   // Board
   const [flop, setFlop] = useState<string[]>([]);
   const [turn, setTurn] = useState<string[]>([]);
@@ -95,6 +98,16 @@ export default function NewHandPage() {
   const activePositions = useMemo(() => {
     return new Set([...allTablePositions].filter((pos) => !foldedPositions.has(pos)));
   }, [allTablePositions, foldedPositions]);
+
+  // Check if all active players are all-in (no more action possible)
+  const allPlayersAllIn = useMemo(() => {
+    if (activePositions.size <= 1) return false;
+    // All active players must be all-in for no more action
+    const activeArray = [...activePositions];
+    const playersWithChips = activeArray.filter((pos) => !allInPositions.has(pos));
+    // If 0 or 1 player has chips left, no more action needed
+    return playersWithChips.length <= 1;
+  }, [activePositions, allInPositions]);
 
   // All used cards
   const allUsedCards = useMemo(() => {
@@ -314,6 +327,18 @@ export default function NewHandPage() {
     if (action === "fold") {
       setFoldedPositions(new Set([...foldedPositions, position]));
     }
+
+    if (action === "all-in") {
+      setAllInPositions(new Set([...allInPositions, position]));
+    }
+
+    // Check if a call used all remaining chips (effectively all-in)
+    if (action === "call" && newAction.amount) {
+      const remainingAfterCall = getRemainingStack(position, [...currentActions, newAction]);
+      if (remainingAfterCall <= 0) {
+        setAllInPositions(new Set([...allInPositions, position]));
+      }
+    }
   }
 
   // Fold everyone up to a position
@@ -366,7 +391,14 @@ export default function NewHandPage() {
         }
         break;
       case "flop-cards":
-        if (flop.length === 3) setStep("flop-action");
+        if (flop.length === 3) {
+          // Skip flop action if everyone is all-in
+          if (allPlayersAllIn) {
+            setStep("turn-card");
+          } else {
+            setStep("flop-action");
+          }
+        }
         break;
       case "flop-action":
         if (activePositions.size <= 1) {
@@ -376,17 +408,31 @@ export default function NewHandPage() {
         }
         break;
       case "turn-card":
-        if (turn.length === 1) setStep("turn-action");
+        if (turn.length === 1) {
+          // Skip turn action if everyone is all-in
+          if (allPlayersAllIn) {
+            setStep("river-card");
+          } else {
+            setStep("turn-action");
+          }
+        }
         break;
       case "turn-action":
         if (activePositions.size <= 1) {
           setStep("result");
-        } else if (isBettingComplete(turnAction, postflopOrder, allPlayersInHand)) {
+        } else if (isBettingComplete(turnAction, postflopOrder, allTablePositions)) {
           setStep("river-card");
         }
         break;
       case "river-card":
-        if (river.length === 1) setStep("river-action");
+        if (river.length === 1) {
+          // Skip river action if everyone is all-in
+          if (allPlayersAllIn) {
+            setStep("result");
+          } else {
+            setStep("river-action");
+          }
+        }
         break;
       case "river-action":
         setStep("result");
