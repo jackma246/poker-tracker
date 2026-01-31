@@ -185,17 +185,41 @@ export default function NewHandPage() {
   const turnPot = useMemo(() => flopPot + sumActionAmounts(turnAction), [flopPot, turnAction]);
   const riverPot = useMemo(() => turnPot + sumActionAmounts(riverAction), [turnPot, riverAction]);
 
+  // Get the current bet to call (the last bet/raise amount)
+  function getCurrentBetToCall(actions: Action[], isPreflop: boolean): number {
+    // For preflop, start with BB as the initial bet
+    const blindParts = effectiveBlinds.split("/").map((b) => parseFloat(b.trim()) || 0);
+    const bb = blindParts[1] || blindParts[0] || 0;
+    let currentBet = isPreflop ? bb : 0;
+
+    // Find the last bet/raise/all-in - that's the current bet level
+    for (const a of actions) {
+      if (a.amount && ["bet", "raise", "all-in"].includes(a.action)) {
+        currentBet = a.amount;
+      }
+    }
+
+    return currentBet;
+  }
+
   // Record an action
   function recordAction(
     position: string,
     action: string,
     currentActions: Action[],
-    setActions: (a: Action[]) => void
+    setActions: (a: Action[]) => void,
+    isPreflop: boolean = false
   ) {
     const newAction: Action = { position, action };
 
     if (actionAmount && ["call", "bet", "raise", "all-in"].includes(action)) {
       newAction.amount = parseFloat(actionAmount);
+    } else if (action === "call") {
+      // Auto-fill call amount based on current bet
+      const currentBet = getCurrentBetToCall(currentActions, isPreflop);
+      if (currentBet > 0) {
+        newAction.amount = currentBet;
+      }
     }
 
     setActions([...currentActions, newAction]);
@@ -368,9 +392,11 @@ export default function NewHandPage() {
     actions: Action[],
     setActions: (a: Action[]) => void,
     playersInHand: Set<string>,
-    currentPot: number
+    currentPot: number,
+    isPreflop: boolean = false
   ) {
     const nextToAct = getNextToAct(actions, order, playersInHand);
+    const currentBetToCall = getCurrentBetToCall(actions, isPreflop);
     const activeInOrder = order.filter(
       (pos) => playersInHand.has(pos) && !foldedPositions.has(pos)
     );
@@ -454,13 +480,20 @@ export default function NewHandPage() {
             </div>
 
             {/* Amount input */}
-            <input
-              type="number"
-              value={actionAmount}
-              onChange={(e) => setActionAmount(e.target.value)}
-              placeholder="$ Amount (optional)"
-              inputMode="numeric"
-            />
+            <div className="space-y-1">
+              <input
+                type="number"
+                value={actionAmount}
+                onChange={(e) => setActionAmount(e.target.value)}
+                placeholder={currentBetToCall > 0 ? `$ Amount (call = $${currentBetToCall})` : "$ Amount (optional)"}
+                inputMode="numeric"
+              />
+              {currentBetToCall > 0 && (
+                <div className="text-xs text-[var(--muted)] text-center">
+                  Current bet: ${currentBetToCall}
+                </div>
+              )}
+            </div>
 
             {/* Action buttons */}
             <div className="grid grid-cols-3 gap-2">
@@ -468,13 +501,13 @@ export default function NewHandPage() {
                 <button
                   key={action}
                   type="button"
-                  onClick={() => recordAction(nextToAct, action, actions, setActions)}
+                  onClick={() => recordAction(nextToAct, action, actions, setActions, isPreflop)}
                   className={`py-3 rounded-lg font-medium capitalize action-chip action-${action.replace(
                     "-",
                     ""
                   )}`}
                 >
-                  {action}
+                  {action === "call" && currentBetToCall > 0 ? `call $${currentBetToCall}` : action}
                 </button>
               ))}
             </div>
@@ -705,7 +738,7 @@ export default function NewHandPage() {
 
       {/* Step: Preflop Action */}
       {step === "preflop" &&
-        renderActionStreet("Preflop", preflopOrder, preflopAction, setPreflopAction, allTablePositions, preflopPot)}
+        renderActionStreet("Preflop", preflopOrder, preflopAction, setPreflopAction, allTablePositions, preflopPot, true)}
 
       {/* Step: Flop Cards */}
       {step === "flop-cards" && (
