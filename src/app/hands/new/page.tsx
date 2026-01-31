@@ -69,8 +69,6 @@ export default function NewHandPage() {
 
   // Result
   const [result, setResult] = useState("won");
-  const [potSize, setPotSize] = useState("");
-  const [profit, setProfit] = useState("");
   const [title, setTitle] = useState("");
   const [notes, setNotes] = useState("");
 
@@ -184,6 +182,48 @@ export default function NewHandPage() {
   const flopPot = useMemo(() => preflopPot + sumActionAmounts(flopAction), [preflopPot, flopAction]);
   const turnPot = useMemo(() => flopPot + sumActionAmounts(turnAction), [flopPot, turnAction]);
   const riverPot = useMemo(() => turnPot + sumActionAmounts(riverAction), [turnPot, riverAction]);
+
+  // Calculate hero's total contribution to the pot
+  const heroContribution = useMemo(() => {
+    let total = 0;
+
+    // Add blind if hero is SB or BB
+    const blindParts = effectiveBlinds.split("/").map((b) => parseFloat(b.trim()) || 0);
+    const sb = blindParts[0] || 0;
+    const bb = blindParts[1] || blindParts[0] || 0;
+    if (heroPosition === "SB") total += sb;
+    if (heroPosition === "BB") total += bb;
+
+    // Sum all hero's action amounts
+    const allActions = [...preflopAction, ...flopAction, ...turnAction, ...riverAction];
+    for (const action of allActions) {
+      if (action.position === heroPosition && action.amount) {
+        total += action.amount;
+      }
+    }
+
+    return total;
+  }, [heroPosition, effectiveBlinds, preflopAction, flopAction, turnAction, riverAction]);
+
+  // Calculate final pot
+  const finalPot = useMemo(() => {
+    if (river.length > 0) return riverPot;
+    if (turn.length > 0) return turnPot;
+    if (flop.length > 0) return flopPot;
+    return preflopPot;
+  }, [river, turn, flop, riverPot, turnPot, flopPot, preflopPot]);
+
+  // Calculate profit based on result
+  const calculatedProfit = useMemo(() => {
+    if (result === "won") {
+      return finalPot - heroContribution;
+    } else if (result === "lost") {
+      return -heroContribution;
+    } else if (result === "split") {
+      return Math.round(finalPot / 2) - heroContribution;
+    }
+    return 0;
+  }, [result, finalPot, heroContribution]);
 
   // Get the current bet to call (the last bet/raise amount)
   function getCurrentBetToCall(actions: Action[], isPreflop: boolean): number {
@@ -372,8 +412,8 @@ export default function NewHandPage() {
           turnAction: turnAction.length > 0 ? turnAction : null,
           riverAction: riverAction.length > 0 ? riverAction : null,
           result,
-          potSize: parseFloat(potSize) || (river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot) || null,
-          profit: parseFloat(profit) || 0,
+          potSize: finalPot,
+          profit: calculatedProfit,
           title: title || null,
           notes: notes || null,
         }),
@@ -891,28 +931,29 @@ export default function NewHandPage() {
             ))}
           </div>
 
-          {/* Pot & Profit */}
+          {/* Pot & Profit - Auto-calculated */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-[var(--muted)] mb-1">Pot Size (calculated: ${(river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot).toFixed(0)})</div>
-              <input
-                type="number"
-                value={potSize}
-                onChange={(e) => setPotSize(e.target.value)}
-                placeholder={`$ ${(river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot).toFixed(0)}`}
-                inputMode="numeric"
-              />
+              <div className="text-xs text-[var(--muted)] mb-1">Pot Size</div>
+              <div className="p-3 bg-[var(--card)] rounded-lg text-center font-semibold">
+                ${finalPot.toFixed(0)}
+              </div>
             </div>
             <div>
               <div className="text-xs text-[var(--muted)] mb-1">Your Profit</div>
-              <input
-                type="number"
-                value={profit}
-                onChange={(e) => setProfit(e.target.value)}
-                placeholder="$ 0"
-                inputMode="numeric"
-              />
+              <div className={`p-3 rounded-lg text-center font-semibold ${
+                calculatedProfit > 0
+                  ? "bg-[var(--primary-bg)] text-[var(--primary)]"
+                  : calculatedProfit < 0
+                  ? "bg-[var(--danger-bg)] text-[var(--danger)]"
+                  : "bg-[var(--card)]"
+              }`}>
+                {calculatedProfit >= 0 ? "+" : ""}${calculatedProfit.toFixed(0)}
+              </div>
             </div>
+          </div>
+          <div className="text-xs text-[var(--muted)] text-center">
+            You put in ${heroContribution.toFixed(0)} → {result === "won" ? "Won" : result === "lost" ? "Lost" : "Split"} ${finalPot.toFixed(0)} pot
           </div>
 
           {/* Notes */}
