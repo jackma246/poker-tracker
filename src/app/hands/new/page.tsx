@@ -78,17 +78,25 @@ export default function NewHandPage() {
   const postflopOrder = tableSize === 9 ? POSTFLOP_9MAX : POSTFLOP_6MAX;
   const effectiveBlinds = blinds === "custom" ? customBlinds : blinds;
 
-  // All positions in the hand (hero + villains)
+  // All positions at the table (for preflop, everyone acts until they fold)
+  const allTablePositions = useMemo(() => {
+    const positions = tableSize === 9 ? POSITIONS_9MAX : POSITIONS_6MAX;
+    return new Set(positions);
+  }, [tableSize]);
+
+  // All positions in the hand (hero + villains - for postflop and tracking)
   const allPlayersInHand = useMemo(() => {
     const set = new Set(villainPositions);
     if (heroPosition) set.add(heroPosition);
     return set;
   }, [villainPositions, heroPosition]);
 
-  // Active positions (in hand and not folded)
+
+  // Active positions (in table and not folded)
+  // After preflop, this includes all non-folded positions (not just villains)
   const activePositions = useMemo(() => {
-    return new Set([...allPlayersInHand].filter((pos) => !foldedPositions.has(pos)));
-  }, [allPlayersInHand, foldedPositions]);
+    return new Set([...allTablePositions].filter((pos) => !foldedPositions.has(pos)));
+  }, [allTablePositions, foldedPositions]);
 
   // All used cards
   const allUsedCards = useMemo(() => {
@@ -98,10 +106,10 @@ export default function NewHandPage() {
   }, [heroCards, flop, turn, river, villainCards]);
 
   // Get who needs to act next in a betting round
-  function getNextToAct(actions: Action[], order: string[]): string | null {
+  function getNextToAct(actions: Action[], order: string[], playersInHand: Set<string>): string | null {
     // Find positions in hand that haven't folded
     const activeInOrder = order.filter(
-      (pos) => allPlayersInHand.has(pos) && !foldedPositions.has(pos)
+      (pos) => playersInHand.has(pos) && !foldedPositions.has(pos)
     );
 
     if (activeInOrder.length <= 1) return null;
@@ -148,9 +156,34 @@ export default function NewHandPage() {
   }
 
   // Check if betting round is complete
-  function isBettingComplete(actions: Action[], order: string[]): boolean {
-    return getNextToAct(actions, order) === null;
+  function isBettingComplete(actions: Action[], order: string[], playersInHand: Set<string>): boolean {
+    return getNextToAct(actions, order, playersInHand) === null;
   }
+
+  // Calculate pot size from actions
+  function sumActionAmounts(actions: Action[]): number {
+    let total = 0;
+    for (const action of actions) {
+      if (action.amount && ["call", "bet", "raise", "all-in"].includes(action.action)) {
+        total += action.amount;
+      }
+    }
+    return total;
+  }
+
+  // Parse blinds
+  const blindsAmount = useMemo(() => {
+    const blindParts = effectiveBlinds.split("/").map((b) => parseFloat(b.trim()) || 0);
+    const sb = blindParts[0] || 0;
+    const bb = blindParts[1] || blindParts[0] || 0;
+    return sb + bb;
+  }, [effectiveBlinds]);
+
+  // Get pot at each street
+  const preflopPot = useMemo(() => blindsAmount + sumActionAmounts(preflopAction), [blindsAmount, preflopAction]);
+  const flopPot = useMemo(() => preflopPot + sumActionAmounts(flopAction), [preflopPot, flopAction]);
+  const turnPot = useMemo(() => flopPot + sumActionAmounts(turnAction), [flopPot, turnAction]);
+  const riverPot = useMemo(() => turnPot + sumActionAmounts(riverAction), [turnPot, riverAction]);
 
   // Record an action
   function recordAction(
@@ -178,10 +211,11 @@ export default function NewHandPage() {
     targetPos: string,
     order: string[],
     currentActions: Action[],
-    setActions: (a: Action[]) => void
+    setActions: (a: Action[]) => void,
+    playersInHand: Set<string>
   ) {
     const activeInOrder = order.filter(
-      (pos) => allPlayersInHand.has(pos) && !foldedPositions.has(pos)
+      (pos) => playersInHand.has(pos) && !foldedPositions.has(pos)
     );
 
     const folds: Action[] = [];
@@ -217,7 +251,7 @@ export default function NewHandPage() {
       case "preflop":
         if (activePositions.size <= 1) {
           setStep("result");
-        } else if (isBettingComplete(preflopAction, preflopOrder)) {
+        } else if (isBettingComplete(preflopAction, preflopOrder, allTablePositions)) {
           setStep("flop-cards");
         }
         break;
@@ -227,7 +261,7 @@ export default function NewHandPage() {
       case "flop-action":
         if (activePositions.size <= 1) {
           setStep("result");
-        } else if (isBettingComplete(flopAction, postflopOrder)) {
+        } else if (isBettingComplete(flopAction, postflopOrder, allTablePositions)) {
           setStep("turn-card");
         }
         break;
@@ -237,7 +271,7 @@ export default function NewHandPage() {
       case "turn-action":
         if (activePositions.size <= 1) {
           setStep("result");
-        } else if (isBettingComplete(turnAction, postflopOrder)) {
+        } else if (isBettingComplete(turnAction, postflopOrder, allPlayersInHand)) {
           setStep("river-card");
         }
         break;
@@ -300,7 +334,7 @@ export default function NewHandPage() {
           turnAction: turnAction.length > 0 ? turnAction : null,
           riverAction: riverAction.length > 0 ? riverAction : null,
           result,
-          potSize: parseFloat(potSize) || null,
+          potSize: parseFloat(potSize) || (river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot) || null,
           profit: parseFloat(profit) || 0,
           title: title || null,
           notes: notes || null,
@@ -332,11 +366,13 @@ export default function NewHandPage() {
     streetName: string,
     order: string[],
     actions: Action[],
-    setActions: (a: Action[]) => void
+    setActions: (a: Action[]) => void,
+    playersInHand: Set<string>,
+    currentPot: number
   ) {
-    const nextToAct = getNextToAct(actions, order);
+    const nextToAct = getNextToAct(actions, order, playersInHand);
     const activeInOrder = order.filter(
-      (pos) => allPlayersInHand.has(pos) && !foldedPositions.has(pos)
+      (pos) => playersInHand.has(pos) && !foldedPositions.has(pos)
     );
 
     // Get positions that still need to act
@@ -351,7 +387,12 @@ export default function NewHandPage() {
 
     return (
       <div className="space-y-4">
-        <h2 className="text-lg font-semibold">{streetName} Action</h2>
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">{streetName} Action</h2>
+          <div className="text-sm font-medium px-3 py-1 rounded-full bg-[var(--primary)] text-white">
+            Pot: ${currentPot.toFixed(0)}
+          </div>
+        </div>
 
         {/* Current board */}
         {flop.length > 0 && (
@@ -445,7 +486,7 @@ export default function NewHandPage() {
                   <button
                     key={pos}
                     type="button"
-                    onClick={() => foldToPosition(pos, order, actions, setActions)}
+                    onClick={() => foldToPosition(pos, order, actions, setActions, playersInHand)}
                     className="text-xs px-3 py-2 rounded-lg bg-[var(--card)] border border-[var(--card-border)]"
                   >
                     Folds to {pos === heroPosition ? "Hero" : pos}
@@ -664,7 +705,7 @@ export default function NewHandPage() {
 
       {/* Step: Preflop Action */}
       {step === "preflop" &&
-        renderActionStreet("Preflop", preflopOrder, preflopAction, setPreflopAction)}
+        renderActionStreet("Preflop", preflopOrder, preflopAction, setPreflopAction, allTablePositions, preflopPot)}
 
       {/* Step: Flop Cards */}
       {step === "flop-cards" && (
@@ -682,7 +723,7 @@ export default function NewHandPage() {
 
       {/* Step: Flop Action */}
       {step === "flop-action" &&
-        renderActionStreet("Flop", postflopOrder, flopAction, setFlopAction)}
+        renderActionStreet("Flop", postflopOrder, flopAction, setFlopAction, allTablePositions, flopPot)}
 
       {/* Step: Turn Card */}
       {step === "turn-card" && (
@@ -703,7 +744,7 @@ export default function NewHandPage() {
 
       {/* Step: Turn Action */}
       {step === "turn-action" &&
-        renderActionStreet("Turn", postflopOrder, turnAction, setTurnAction)}
+        renderActionStreet("Turn", postflopOrder, turnAction, setTurnAction, allTablePositions, turnPot)}
 
       {/* Step: River Card */}
       {step === "river-card" && (
@@ -725,12 +766,17 @@ export default function NewHandPage() {
 
       {/* Step: River Action */}
       {step === "river-action" &&
-        renderActionStreet("River", postflopOrder, riverAction, setRiverAction)}
+        renderActionStreet("River", postflopOrder, riverAction, setRiverAction, allTablePositions, riverPot)}
 
       {/* Step: Result */}
       {step === "result" && (
         <div className="space-y-5">
-          <h2 className="text-lg font-semibold">Result</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Result</h2>
+            <div className="text-sm font-medium px-3 py-1 rounded-full bg-[var(--primary)] text-white">
+              Final Pot: ${(river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot).toFixed(0)}
+            </div>
+          </div>
 
           {/* Final board */}
           {flop.length > 0 && (
@@ -796,12 +842,12 @@ export default function NewHandPage() {
           {/* Pot & Profit */}
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <div className="text-xs text-[var(--muted)] mb-1">Pot Size</div>
+              <div className="text-xs text-[var(--muted)] mb-1">Pot Size (calculated: ${(river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot).toFixed(0)})</div>
               <input
                 type="number"
                 value={potSize}
                 onChange={(e) => setPotSize(e.target.value)}
-                placeholder="$ 0"
+                placeholder={`$ ${(river.length > 0 ? riverPot : turn.length > 0 ? turnPot : flop.length > 0 ? flopPot : preflopPot).toFixed(0)}`}
                 inputMode="numeric"
               />
             </div>
