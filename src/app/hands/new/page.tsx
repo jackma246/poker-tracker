@@ -1058,8 +1058,8 @@ export default function NewHandPage() {
       )}
 
       {/* Navigation */}
-      <div className="fixed bottom-0 left-0 right-0 p-4 bg-[var(--background)] border-t border-[var(--card-border)]" style={{ zIndex: 50, isolation: "isolate" }}>
-        <div className="max-w-lg mx-auto" style={{ display: "flex", gap: "12px", overflow: "hidden" }}>
+      <div className="fixed bottom-0 left-0 right-0 p-4 bg-[var(--background)] border-t border-[var(--card-border)]" style={{ zIndex: 50, WebkitTransform: "translateZ(0)", transform: "translateZ(0)" }}>
+        <div style={{ maxWidth: "32rem", margin: "0 auto", display: "flex", gap: "12px" }}>
           {step !== "hero" && (
             <button
               type="button"
