@@ -242,12 +242,44 @@ export default function NewHandPage() {
     return currentBet;
   }
 
-  // Get stack size for a position
-  function getStackForPosition(position: string): number {
+  // Get remaining stack for a position (original stack minus amount already bet)
+  function getRemainingStack(position: string, currentStreetActions: Action[]): number {
+    // Get original stack
+    let originalStack = 0;
     if (position === heroPosition) {
-      return parseFloat(heroStack) || 0;
+      originalStack = parseFloat(heroStack) || 0;
+    } else {
+      originalStack = villainStacks[position] || 0;
     }
-    return villainStacks[position] || 0;
+
+    if (originalStack === 0) return 0;
+
+    // Subtract all amounts this player has already put in
+    let totalBet = 0;
+
+    // Add blind if applicable
+    const blindParts = effectiveBlinds.split("/").map((b) => parseFloat(b.trim()) || 0);
+    const sb = blindParts[0] || 0;
+    const bb = blindParts[1] || blindParts[0] || 0;
+    if (position === "SB") totalBet += sb;
+    if (position === "BB") totalBet += bb;
+
+    // Sum all previous action amounts for this player
+    const allPreviousActions = [...preflopAction, ...flopAction, ...turnAction, ...riverAction];
+    for (const action of allPreviousActions) {
+      if (action.position === position && action.amount) {
+        totalBet += action.amount;
+      }
+    }
+
+    // Also include current street actions (in case we're mid-street)
+    for (const action of currentStreetActions) {
+      if (action.position === position && action.amount) {
+        // Already counted in allPreviousActions if it's the same reference
+      }
+    }
+
+    return Math.max(0, originalStack - totalBet);
   }
 
   // Record an action
@@ -269,10 +301,10 @@ export default function NewHandPage() {
         newAction.amount = currentBet;
       }
     } else if (action === "all-in") {
-      // Auto-fill all-in amount based on player's stack
-      const stack = getStackForPosition(position);
-      if (stack > 0) {
-        newAction.amount = stack;
+      // Auto-fill all-in amount based on player's remaining stack
+      const remainingStack = getRemainingStack(position, currentActions);
+      if (remainingStack > 0) {
+        newAction.amount = remainingStack;
       }
     }
 
@@ -451,7 +483,7 @@ export default function NewHandPage() {
   ) {
     const nextToAct = getNextToAct(actions, order, playersInHand);
     const currentBetToCall = getCurrentBetToCall(actions, isPreflop);
-    const nextToActStack = nextToAct ? getStackForPosition(nextToAct) : 0;
+    const nextToActStack = nextToAct ? getRemainingStack(nextToAct, actions) : 0;
     const activeInOrder = order.filter(
       (pos) => playersInHand.has(pos) && !foldedPositions.has(pos)
     );
